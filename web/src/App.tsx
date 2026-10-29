@@ -1,0 +1,610 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as api from "./api";
+import type { ConvertOptions, Crop, Matrix, PaletteColor, Photo } from "./api";
+import CropEditor, { clampCrop } from "./components/CropEditor";
+import MosaicCanvas, { type Tool, type View } from "./components/MosaicCanvas";
+
+const SIZES = [32, 48, 64, 96, 128, 160, 192, 256];
+const HISTORY = 100;
+
+const DEFAULTS: ConvertOptions = {
+  size: 48,
+  dither: false,
+  palette: "adaptive",
+  colors: 160,
+  face_detail: 0.3,
+  background: "bilateral",
+};
+
+function download(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export default function App() {
+  const [samples, setSamples] = useState<{ key: string; title: string }[]>([]);
+  const [client, setClient] = useState<PaletteColor[]>([]);
+  const [photo, setPhoto] = useState<Photo | null>(null);
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [crop, setCrop] = useState<Crop>([0, 0, 1]);
+  const [opts, setOpts] = useState<ConvertOptions>(DEFAULTS);
+  const [matrix, setMatrix] = useState<Matrix | null>(null);
+  const [grid, setGrid] = useState<string[][] | null>(null);
+  const [past, setPast] = useState<string[][][]>([]);
+  const [future, setFuture] = useState<string[][][]>([]);
+  const [generatedWith, setGeneratedWith] = useState<string>("");
+  const [view, setView] = useState<View>("bricks");
+  const [tool, setTool] = useState<Tool>("paint");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [swatchTab, setSwatchTab] = useState<"mosaic" | "client">("mosaic");
+  const [busy, setBusy] = useState<string>("");
+  const [error, setError] = useState<string>("");
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const [server, setServer] = useState<"waking" | "ready" | "down">("waking");
+  const [needPw, setNeedPw] = useState(false);
+  const [pwInput, setPwInput] = useState("");
+
+  const loadBasics = useCallback(() => {
+    api.listSamples().then(setSamples).catch((e) => e instanceof api.PasswordRequired && setNeedPw(true));
+    api.clientPalette().then((p) => setClient(p.colors)).catch(() => {});
+  }, []);
+
+  // The hosted API sleeps when idle (Render free plan): poll until it answers.
+  useEffect(() => {
+    let stop = false;
+    const started = Date.now();
+    const ping = async () => {
+      try {
+        await api.health();
+        if (stop) return;
+        setServer("ready");
+        loadBasics();
+      } catch {
+        if (stop) return;
+        if (Date.now() - started > 120_000) setServer("down");
+        else setTimeout(ping, 3000);
+      }
+    };
+    ping();
+    return () => {
+      stop = true;
+    };
+  }, [loadBasics]);
+
+  const fail = (e: unknown) => {
+    if (e instanceof api.PasswordRequired) setNeedPw(true);
+    else setError((e as Error).message);
+  };
+
+  const openPhoto = async (load: () => Promise<Photo>) => {
+    setError("");
+    setBusy("Loading photo…");
+    try {
+      const ph = await load();
+      const img = new Image();
+      img.src = api.apiUrl(ph.view_url);
+      await img.decode();
+      setPhoto(ph);
+      setImage(img);
+      setCrop(clampCrop(ph.auto_crop, ph.width, ph.height));
+      setMatrix(null);
+      setGrid(null);
+      setPast([]);
+      setFuture([]);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const signature = JSON.stringify({ id: photo?.id, crop, opts });
+  const stale = !!matrix && generatedWith !== signature;
+
+  const generate = async () => {
+    if (!photo) return;
+    setError("");
+    setBusy(`Converting to ${opts.size}×${opts.size} bricks…`);
+    try {
+      const m = await api.convert(photo.id, crop, opts);
+      setMatrix(m);
+      setGrid(m.grid);
+      setPast([]);
+      setFuture([]);
+      setGeneratedWith(signature);
+      setSelected(null);
+      setSwatchTab(m.palette.name === "client" ? "client" : "mosaic");
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const colorIndex = useMemo(() => {
+    const map = new Map<string, PaletteColor>();
+    for (const c of client) map.set(c.code, c);
+    for (const c of matrix?.palette_full ?? []) map.set(c.code, c);
+    return map;
+  }, [client, matrix]);
+  const hexOf = useCallback((code: string) => colorIndex.get(code)?.hex ?? "#ff00ff", [colorIndex]);
+  const nameOf = useCallback((code: string) => colorIndex.get(code)?.name ?? "", [colorIndex]);
+
+  const counts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const row of grid ?? []) for (const c of row) m.set(c, (m.get(c) ?? 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [grid]);
+  const total = counts.reduce((s, [, q]) => s + q, 0);
+  const countOf = useMemo(() => new Map(counts), [counts]);
+
+  const startStroke = () => {
+    if (!grid) return;
+    setPast((p) => [...p.slice(-HISTORY + 1), grid]);
+    setFuture([]);
+  };
+  const paint = (r: number, c: number) => {
+    if (!selected) return;
+    setGrid((g) => {
+      if (!g || g[r][c] === selected) return g;
+      const next = g.slice();
+      next[r] = g[r].slice();
+      next[r][c] = selected;
+      return next;
+    });
+  };
+  const undo = () => {
+    if (!past.length || !grid) return;
+    setFuture((f) => [grid, ...f]);
+    setGrid(past[past.length - 1]);
+    setPast((p) => p.slice(0, -1));
+  };
+  const redo = () => {
+    if (!future.length || !grid) return;
+    setPast((p) => [...p, grid]);
+    setGrid(future[0]);
+    setFuture((f) => f.slice(1));
+  };
+
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || (e.target as HTMLElement).tagName === "INPUT") return;
+      if (e.key.toLowerCase() === "z" && !e.shiftKey) (e.preventDefault(), undo());
+      if (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey)) (e.preventDefault(), redo());
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  });
+
+  const edits = useMemo(() => {
+    if (!grid || !matrix) return 0;
+    let k = 0;
+    grid.forEach((row, r) => row.forEach((c, i) => c !== matrix.grid[r][i] && k++));
+    return k;
+  }, [grid, matrix]);
+
+  const exportZip = async () => {
+    if (!matrix || !grid) return;
+    setBusy("Building download pack…");
+    try {
+      const blob = await api.exportPack({ ...matrix, grid, edited: edits > 0 });
+      download(blob, `mosaic_${matrix.size}x${matrix.size}${edits ? "_edited" : ""}.zip`);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const swatches: PaletteColor[] =
+    swatchTab === "client" ? client : [...(matrix?.palette_full ?? [])].sort((a, b) => (countOf.get(b.code) ?? 0) - (countOf.get(a.code) ?? 0));
+
+  const set = <K extends keyof ConvertOptions>(k: K, v: ConvertOptions[K]) => setOpts((o) => ({ ...o, [k]: v }));
+
+  return (
+    <div className="app">
+      <header className="top">
+        <div className="brand">
+          <span className="logo" aria-hidden>
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <div>
+            <h1>PIECES &amp; BRICKS</h1>
+            <p>Mosaic Studio · demo</p>
+          </div>
+        </div>
+        {matrix && (
+          <div className="top-stats">
+            <span>
+              <b>{matrix.size}×{matrix.size}</b> board
+            </span>
+            <span>
+              <b>{total.toLocaleString()}</b> bricks
+            </span>
+            <span>
+              <b>{counts.length}</b> colours
+            </span>
+            {matrix.similarity && (
+              <span className={matrix.similarity.similarity >= 95 ? "sim-ok" : "sim-low"}>
+                <b>{matrix.similarity.similarity.toFixed(1)}%</b> similar
+              </span>
+            )}
+          </div>
+        )}
+      </header>
+
+      {server !== "ready" && (
+        <div className={`banner ${server}`} role="status">
+          {server === "waking" ? (
+            <>
+              <div className="spinner sm" /> Starting the mosaic server… the first visit after a quiet period can take up to a minute.
+            </>
+          ) : (
+            <>The mosaic server is not answering. Please try again in a minute.</>
+          )}
+        </div>
+      )}
+
+      {needPw && (
+        <div className="modal-back">
+          <form
+            className="modal"
+            onSubmit={(e) => {
+              e.preventDefault();
+              api.setPassword(pwInput);
+              setNeedPw(false);
+              setError("");
+              loadBasics();
+            }}
+          >
+            <h3>Demo password</h3>
+            <p className="muted">This demo is private. Enter the password you were given.</p>
+            <input type="password" autoComplete="current-password" autoFocus value={pwInput} onChange={(e) => setPwInput(e.target.value)} aria-label="Password" />
+            <button className="btn primary block" type="submit" disabled={!pwInput}>
+              Continue
+            </button>
+          </form>
+        </div>
+      )}
+
+      <main className="layout">
+        {/* ---------- left: photo, crop, settings ---------- */}
+        <aside className="panel left">
+          <section>
+            <h2>
+              <span className="step">1</span> Photo
+            </h2>
+            <div
+              className="drop"
+              onClick={() => fileInput.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const f = e.dataTransfer.files[0];
+                if (f) openPhoto(() => api.uploadPhoto(f));
+              }}
+            >
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) openPhoto(() => api.uploadPhoto(f));
+                  e.target.value = "";
+                }}
+              />
+              <b>Upload a photo</b>
+              <span>Drop it here or click to browse · JPG, PNG up to 25 MB</span>
+            </div>
+            {samples.length > 0 && (
+              <div className="samples">
+                <span className="muted">Or try a client photo:</span>
+                <div className="chips">
+                  {samples.map((s) => (
+                    <button key={s.key} className="chip" onClick={() => openPhoto(() => api.loadSample(s.key))}>
+                      {s.title}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+
+          {photo && (
+            <section>
+              <h2>
+                <span className="step">2</span> Crop &amp; zoom
+              </h2>
+              <CropEditor photo={photo} image={image} crop={crop} gridSize={opts.size} onChange={setCrop} />
+            </section>
+          )}
+
+          {photo && (
+            <section>
+              <h2>
+                <span className="step">3</span> Settings
+              </h2>
+              <div className="field">
+                <span className="label">Board size</span>
+                <div className="seg">
+                  {SIZES.map((s) => (
+                    <button key={s} className={opts.size === s ? "on" : ""} onClick={() => set("size", s)}>
+                      {s}×{s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="field">
+                <span className="label">Colours</span>
+                <div className="seg">
+                  <button className={opts.palette === "adaptive" ? "on" : ""} onClick={() => set("palette", "adaptive")}>
+                    Best match
+                  </button>
+                  <button className={opts.palette === "client" ? "on" : ""} onClick={() => set("palette", "client")}>
+                    Client 40
+                  </button>
+                </div>
+              </div>
+              {opts.palette === "adaptive" && (
+                <label className="slider">
+                  <span>Max colours</span>
+                  <input type="range" min={16} max={256} value={opts.colors} onChange={(e) => set("colors", +e.target.value)} />
+                  <output>{opts.colors}</output>
+                </label>
+              )}
+              <label className="slider">
+                <span>Face detail</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1.5}
+                  step={0.05}
+                  value={opts.face_detail}
+                  onChange={(e) => set("face_detail", +e.target.value)}
+                />
+                <output>{opts.face_detail.toFixed(2)}</output>
+              </label>
+              <div className="field">
+                <span className="label">Background</span>
+                <div className="seg">
+                  {(
+                    [
+                      ["bilateral", "Smooth"],
+                      ["meanshift", "Flat"],
+                      ["none", "Original"],
+                    ] as const
+                  ).map(([v, t]) => (
+                    <button key={v} className={opts.background === v ? "on" : ""} onClick={() => set("background", v)}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="check">
+                <input type="checkbox" checked={opts.dither} onChange={(e) => set("dither", e.target.checked)} />
+                Dithering <span className="muted">(smoother gradients, noisier faces)</span>
+              </label>
+              <button className="btn primary block" onClick={generate} disabled={!!busy}>
+                {matrix ? (stale ? "Generate again" : "Regenerate") : "Generate mosaic"}
+              </button>
+              {stale && <p className="hint warn">Settings or crop changed since the last mosaic.</p>}
+            </section>
+          )}
+        </aside>
+
+        {/* ---------- centre: mosaic ---------- */}
+        <section className="stage">
+          {grid && matrix ? (
+            <>
+              <div className="toolbar">
+                <div className="seg">
+                  {(
+                    [
+                      ["bricks", "Bricks"],
+                      ["flat", "Flat"],
+                      ["numbers", "Numbered grid"],
+                      ["compare", "Compare"],
+                    ] as const
+                  ).map(([v, t]) => (
+                    <button key={v} className={view === v ? "on" : ""} onClick={() => setView(v)}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+                <div className="tools">
+                  <div className="seg">
+                    <button className={tool === "paint" ? "on" : ""} onClick={() => setTool("paint")} title="Paint bricks with the selected colour">
+                      Paint
+                    </button>
+                    <button className={tool === "pick" ? "on" : ""} onClick={() => setTool("pick")} title="Pick a colour from the mosaic">
+                      Pick
+                    </button>
+                  </div>
+                  <button className="btn ghost sm" onClick={undo} disabled={!past.length} title="Undo (Ctrl+Z)">
+                    Undo
+                  </button>
+                  <button className="btn ghost sm" onClick={redo} disabled={!future.length} title="Redo (Ctrl+Y)">
+                    Redo
+                  </button>
+                  <button
+                    className="btn ghost sm"
+                    disabled={!edits}
+                    onClick={() => {
+                      startStroke();
+                      setGrid(matrix.grid);
+                    }}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+              <MosaicCanvas
+                grid={grid}
+                hexOf={hexOf}
+                nameOf={nameOf}
+                view={view}
+                tool={tool}
+                image={image}
+                photoWidth={photo?.width ?? 1}
+                crop={(matrix.settings.crop_resolved as Crop) ?? crop}
+                onStrokeStart={() => selected && startStroke()}
+                onPaint={paint}
+                onPick={(c) => {
+                  setSelected(c);
+                  setTool("paint");
+                }}
+              />
+              {tool === "paint" && !selected && view !== "compare" && (
+                <p className="hint center">Choose a colour on the right, then click or drag on the mosaic to paint.</p>
+              )}
+            </>
+          ) : (
+            <div className="empty">
+              <div className="empty-art" aria-hidden>
+                {Array.from({ length: 36 }).map((_, i) => (
+                  <i key={i} style={{ background: ["#FD637D", "#FFD300", "#58A3DA", "#ECA279", "#00A64D", "#F7F0E3"][(i * 7) % 6] }} />
+                ))}
+              </div>
+              <h3>{photo ? "Set the crop, then generate" : "Start with a photo"}</h3>
+              <p className="muted">
+                {photo
+                  ? "Frame the faces large: the bigger they are in the crop, the clearer they look in bricks."
+                  : "Upload a portrait, or try one of the client photos."}
+              </p>
+            </div>
+          )}
+          {busy && (
+            <div className="busy" role="status">
+              <div className="spinner" />
+              {busy}
+            </div>
+          )}
+          {error && (
+            <div className="error" role="alert">
+              {error} <button onClick={() => setError("")}>Dismiss</button>
+            </div>
+          )}
+        </section>
+
+        {/* ---------- right: colours + counts ---------- */}
+        {grid && matrix && (
+          <aside className="panel right">
+            {matrix.similarity && (
+              <section className="similarity">
+                <h2>Similarity to photo</h2>
+                <div className={`sim-big ${matrix.similarity.similarity >= 95 ? "ok" : "low"}`}>
+                  {matrix.similarity.similarity.toFixed(1)}%
+                </div>
+                <div className="sim-bar">
+                  <span style={{ width: `${Math.min(100, matrix.similarity.similarity)}%` }} />
+                  <i style={{ left: "95%" }} title="95% target" />
+                </div>
+                <dl>
+                  <dt>Bricks with a close colour match (ΔE ≤ 5)</dt>
+                  <dd>{matrix.similarity.pct_close.toFixed(1)}%</dd>
+                  <dt>Bricks with no visible difference (ΔE ≤ 2.3)</dt>
+                  <dd>{matrix.similarity.pct_unnoticeable.toFixed(1)}%</dd>
+                  <dt>Structure match (SSIM)</dt>
+                  <dd>{matrix.similarity.structure_ssim.toFixed(1)}%</dd>
+                  <dt>Average colour error (ΔE)</dt>
+                  <dd>{matrix.similarity.mean_delta_e.toFixed(2)}</dd>
+                  {matrix.similarity.face_mean_delta_e !== undefined && (
+                    <>
+                      <dt>Average colour error on faces</dt>
+                      <dd>{matrix.similarity.face_mean_delta_e.toFixed(2)}</dd>
+                    </>
+                  )}
+                </dl>
+                <p className="hint">
+                  Measured against the photo averaged under each brick, the most detail a {matrix.size}×{matrix.size} board can hold.
+                  {edits > 0 && " Score is for the generated mosaic, before your edits."}
+                </p>
+              </section>
+            )}
+            <section>
+              <h2>Paint colour</h2>
+              <div className="seg small">
+                <button className={swatchTab === "mosaic" ? "on" : ""} onClick={() => setSwatchTab("mosaic")} disabled={matrix.palette.name === "client"}>
+                  This mosaic ({matrix.palette_full.length})
+                </button>
+                <button className={swatchTab === "client" ? "on" : ""} onClick={() => setSwatchTab("client")}>
+                  Client 40
+                </button>
+              </div>
+              <div className="swatches">
+                {swatches.map((c) => (
+                  <button
+                    key={c.code}
+                    className={`swatch ${selected === c.code ? "on" : ""}`}
+                    style={{ background: c.hex }}
+                    title={`${c.code} ${c.name} ${c.hex}`}
+                    onClick={() => {
+                      setSelected(c.code);
+                      setTool("paint");
+                    }}
+                  />
+                ))}
+              </div>
+              {selected && (
+                <div className="selected">
+                  <span className="sw lg" style={{ background: hexOf(selected) }} />
+                  <div>
+                    <b>{selected}</b> {nameOf(selected)}
+                    <div className="muted mono">
+                      {hexOf(selected)} · {countOf.get(selected) ?? 0} bricks
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="counts">
+              <h2>
+                Brick counts <span className="muted">{edits ? `· ${edits} edited` : ""}</span>
+              </h2>
+              <div className="table">
+                <div className="tr th">
+                  <span>Code</span>
+                  <span>Name</span>
+                  <span className="num">Qty</span>
+                </div>
+                {counts.map(([code, q]) => (
+                  <button key={code} className={`tr ${selected === code ? "on" : ""}`} onClick={() => setSelected(code)}>
+                    <span className="code">
+                      <span className="sw" style={{ background: hexOf(code) }} />
+                      {code}
+                    </span>
+                    <span className="name">{nameOf(code)}</span>
+                    <span className="num">{q}</span>
+                  </button>
+                ))}
+                <div className={`tr total ${total === matrix.size * matrix.size ? "ok" : "bad"}`}>
+                  <span>Total</span>
+                  <span>{total === matrix.size * matrix.size ? "matches the board ✓" : "does not match the board"}</span>
+                  <span className="num">{total.toLocaleString()}</span>
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <button className="btn primary block" onClick={exportZip} disabled={!!busy}>
+                Download pack (.zip)
+              </button>
+              <p className="hint">preview.png, grid.png, flat.png, counts.csv and matrix.json, all rendered from the current grid, including your edits.</p>
+            </section>
+          </aside>
+        )}
+      </main>
+    </div>
+  );
+}

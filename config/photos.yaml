@@ -1,0 +1,78 @@
+# Per-photo crop and settings. Anything in `defaults` can be overridden per job.
+# Jobs are named <photo><version>; output goes to output/<job>_<size>_<variant>/.
+
+defaults:
+  palette: adaptive        # adaptive = best colours for this photo; client = fixed 40 (C01-C40)
+  colors: 160              # adaptive palette size (max 256); more colours = closer to the photo
+  face_weight: 6.0         # face cells count this much more when choosing adaptive colours
+  kL: 0.85                 # CIEDE2000 lightness factor (<1 = keep eye/shadow contrast)
+  grid_face_detail: 0.3    # brick-scale lightness sharpening inside faces (eyes, brows, mouth)
+  grid_detail_sigma: 0.8   # in bricks
+  face_score: 0.8
+  crop: auto               # or [x, y, size] in original pixels
+  crop_mode: auto          # auto | single (frame only the largest face)
+  face_scale: 3.0          # single face: crop side = face size x this
+  shift_down: 0.12         # move crop centre down (fraction of crop side) to include shoulders
+  group_pad: 1.6           # group: padding around all faces, in median face sizes
+  upscale_min: 1000
+  denoise_h: 3
+  clahe_clip: 0.0          # keep off: local contrast creates halos and costs ~20 points of similarity
+  clahe_tiles: 4
+  sharpen: 0.0
+  face_sharpen: 0.4
+  sharpen_sigma: 1.5
+  saturation: 1.04
+  bg_filter: bilateral     # bilateral | meanshift | none
+  bg_spatial: 12
+  bg_color: 40
+  bg_passes: 3
+  dither_strength: 0.8
+  dither_face_strength: 0.25
+  dither_clamp: 12.0
+
+jobs:
+  p5:
+    file: p5_man_colour_bg.png
+    sizes: [48]
+    face_scale: 2.5
+    shift_down: 0.13
+
+  p4:
+    file: p4_toddler_bench.jpg
+    sizes: [48]
+    face_scale: 2.7
+    shift_down: 0.16
+    face_sharpen: 0.8
+
+  p1:
+    file: p1_girl_teddy.jpg
+    sizes: [48]
+    crop: [400, 960, 1120]   # her face, the teddy and the top of the drawing
+
+  p2a:
+    file: p2_studio_family.png
+    sizes: [48, 96]
+    crop: [0, 0, 850]
+    colors: 256              # five people in bright clothes: needs more colours for 95%+
+
+  p2b:
+    file: p2_studio_family.png
+    sizes: [48]
+    crop: [150, 30, 540]     # father, little girl and mother
+
+  p3a:
+    file: p3_birthday_family.jpg
+    sizes: [48, 96]
+    group_pad: 2.0
+    shift_down: 0.1
+    bg_filter: meanshift
+    bg_spatial: 16
+    bg_color: 40
+
+  p3b:
+    file: p3_birthday_family.jpg
+    sizes: [48]
+    crop: [110, 225, 560]    # tight on the five faces
+    bg_filter: meanshift
+    bg_spatial: 16
+    bg_color: 40

@@ -1,0 +1,12 @@
+# Client photos stay private: never commit them.
+input/*
+!input/.gitkeep
+!input/README.md
+uploads/
+output/
+__pycache__/
+.pytest_cache/
+.venv/
+.env
+web/node_modules/
+web/dist/
