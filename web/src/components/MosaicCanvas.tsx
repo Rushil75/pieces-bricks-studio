@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Crop } from "../api";
-import { brickTile, luminance } from "../bricks";
+import { brickTile, luminance, printedTileOverlay } from "../bricks";
 
-export type View = "bricks" | "flat" | "numbers" | "compare";
+export type View = "bricks" | "flat" | "numbers" | "compare" | "printed";
 export type Tool = "paint" | "pick";
 
 interface Props {
@@ -35,6 +35,7 @@ export default function MosaicCanvas(p: Props) {
   const [hover, setHover] = useState<{ r: number; c: number } | null>(null);
   const n = p.grid.length;
   const labels = p.view === "numbers";
+  const editable = p.view !== "compare" && p.view !== "printed";
 
   useEffect(() => {
     const el = wrap.current;
@@ -118,6 +119,17 @@ export default function MosaicCanvas(p: Props) {
         ctx.fillText(String(i + 1), q, off / 2);
         ctx.fillText(String(i + 1), off / 2, q);
       }
+    } else if (p.view === "printed") {
+      // Optional printed-tiles product: the photo itself, printed across flat 1x1 tiles.
+      if (p.image) {
+        const vs = p.image.naturalWidth / p.photoWidth;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(p.image, p.crop[0] * vs, p.crop[1] * vs, p.crop[2] * vs, p.crop[2] * vs, 0, 0, W, W);
+      }
+      if (cell >= 3) {
+        const ov = printedTileOverlay(cell);
+        for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) ctx.drawImage(ov, c * cell, r * cell);
+      }
     } else {
       drawCells(p.view);
     }
@@ -144,7 +156,7 @@ export default function MosaicCanvas(p: Props) {
     if (cv.width !== W) cv.width = cv.height = W;
     const ctx = cv.getContext("2d")!;
     ctx.clearRect(0, 0, W, W);
-    if (!hover || p.view === "compare") return;
+    if (!hover || !editable) return;
     const x = off + hover.c * cell;
     const y = off + hover.r * cell;
     ctx.strokeStyle = "#000";
@@ -153,7 +165,7 @@ export default function MosaicCanvas(p: Props) {
     ctx.strokeStyle = "#fff";
     ctx.lineWidth = Math.max(1.5, dpr * 1.5);
     ctx.strokeRect(x + 1, y + 1, cell - 2, cell - 2);
-  }, [hover, W, off, cell, dpr, p.view]);
+  }, [hover, W, off, cell, dpr, editable]);
 
   const cellAt = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -171,7 +183,6 @@ export default function MosaicCanvas(p: Props) {
     p.onPaint(at.r, at.c);
   };
 
-  const editable = p.view !== "compare";
   const zoomTo = (z: number) => {
     const el = wrap.current;
     if (!el) return setZoom(z);
@@ -224,7 +235,13 @@ export default function MosaicCanvas(p: Props) {
               Row {hover.r + 1}, Col {hover.c + 1} · <b>{p.grid[hover.r][hover.c]}</b> {p.nameOf(p.grid[hover.r][hover.c])}
             </>
           ) : (
-            <span className="muted">{editable ? "Hover a brick to inspect it. Click or drag to paint." : "Drag the slider to compare."}</span>
+            <span className="muted">
+              {editable
+                ? "Hover a brick to inspect it. Click or drag to paint."
+                : p.view === "printed"
+                  ? "Preview of the photo UV-printed on flat 1×1 tiles. Download the print files on the right."
+                  : "Drag the slider to compare."}
+            </span>
           )}
         </div>
         <div className="seg small" role="group" aria-label="Zoom">

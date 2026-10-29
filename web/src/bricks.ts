@@ -16,6 +16,39 @@ export function luminance(hex: string): number {
   return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 
+const tileCache = new Map<number, HTMLCanvasElement>();
+
+/** Transparent edges of a flat 1x1 tile (UV printing needs smooth, stud-less tops), laid over
+ * the photo to preview the printed-tiles option. */
+export function printedTileOverlay(cell: number): HTMLCanvasElement {
+  const hit = tileCache.get(cell);
+  if (hit) return hit;
+  const ss = 4;
+  const s = cell * ss;
+  const big = document.createElement("canvas");
+  big.width = big.height = s;
+  const d = big.getContext("2d")!;
+  const k = Math.min(1, Math.max(0.35, (cell - 4) / 16));
+  const g = Math.max(1, Math.round(s * 0.035));
+  const bev = Math.max(1, Math.round(s * 0.04));
+  d.fillStyle = "rgba(20,18,22,0.8)"; // gap between tiles
+  d.fillRect(0, 0, s, s);
+  d.clearRect(g, g, s - 2 * g, s - 2 * g);
+  d.fillStyle = `rgba(255,255,255,${0.18 * k})`; // glossy top/left edge
+  d.fillRect(g, g, s - 2 * g, bev);
+  d.fillRect(g, g, bev, s - 2 * g);
+  d.fillStyle = `rgba(0,0,0,${0.16 * k})`; // bottom/right edge
+  d.fillRect(g, s - g - bev, s - 2 * g, bev);
+  d.fillRect(s - g - bev, g, bev, s - 2 * g);
+  const tile = document.createElement("canvas");
+  tile.width = tile.height = cell;
+  const t = tile.getContext("2d")!;
+  t.imageSmoothingQuality = "high";
+  t.drawImage(big, 0, 0, cell, cell);
+  tileCache.set(cell, tile);
+  return tile;
+}
+
 const cache = new Map<string, HTMLCanvasElement>();
 
 export function brickTile(hex: string, cell: number): HTMLCanvasElement {

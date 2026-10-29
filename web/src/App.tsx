@@ -3,6 +3,7 @@ import * as api from "./api";
 import type { ConvertOptions, Crop, Matrix, PaletteColor, Photo } from "./api";
 import CropEditor, { clampCrop } from "./components/CropEditor";
 import MosaicCanvas, { type Tool, type View } from "./components/MosaicCanvas";
+import { PRINT_DEFAULTS, renderPrintSheet, sheetInfo, type PrintLayout } from "./print";
 
 const SIZES = [32, 48, 64, 96, 128, 160, 192, 256];
 const HISTORY = 100;
@@ -195,6 +196,24 @@ export default function App() {
     grid.forEach((row, r) => row.forEach((c, i) => c !== matrix.grid[r][i] && k++));
     return k;
   }, [grid, matrix]);
+
+  const [print, setPrint] = useState(PRINT_DEFAULTS);
+  const setP = <K extends keyof typeof PRINT_DEFAULTS>(k: K, v: (typeof PRINT_DEFAULTS)[K]) => setPrint((o) => ({ ...o, [k]: v }));
+
+  const downloadPrint = async () => {
+    if (!matrix || !image || !photo) return;
+    setBusy("Building the print file…");
+    try {
+      const o = { ...print, tiles: matrix.size };
+      const blob = await renderPrintSheet(image, photo.width, (matrix.settings.crop_resolved as Crop) ?? crop, o);
+      const { dpi } = sheetInfo(o);
+      download(blob, `print_${matrix.size}x${matrix.size}_${o.layout}_${o.tileMm}mm_${dpi}dpi.png`);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy("");
+    }
+  };
 
   const exportZip = async () => {
     if (!matrix || !grid) return;
@@ -422,6 +441,7 @@ export default function App() {
                       ["flat", "Flat"],
                       ["numbers", "Numbered grid"],
                       ["compare", "Compare"],
+                      ["printed", "Printed tiles"],
                     ] as const
                   ).map(([v, t]) => (
                     <button key={v} className={view === v ? "on" : ""} onClick={() => setView(v)}>
@@ -429,7 +449,7 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <div className="tools">
+                <div className="tools" hidden={view === "printed"}>
                   <div className="seg">
                     <button className={tool === "paint" ? "on" : ""} onClick={() => setTool("paint")} title="Paint bricks with the selected colour">
                       Paint
@@ -472,7 +492,7 @@ export default function App() {
                   setTool("paint");
                 }}
               />
-              {tool === "paint" && !selected && view !== "compare" && (
+              {tool === "paint" && !selected && view !== "compare" && view !== "printed" && (
                 <p className="hint center">Choose a colour on the right, then click or drag on the mosaic to paint.</p>
               )}
             </>
@@ -609,6 +629,77 @@ export default function App() {
                 Download pack (.zip)
               </button>
               <p className="hint">preview.png, grid.png, flat.png, counts.csv and matrix.json, all rendered from the current grid, including your edits.</p>
+            </section>
+
+            <section className="print-panel">
+              <h2>
+                Printed tiles <span className="tag">optional</span>
+              </h2>
+              <p className="hint intro">
+                Instead of coloured bricks, UV-print the photo itself onto {(matrix.size * matrix.size).toLocaleString()} blank flat 1×1 tiles.
+                See it in the <button className="link" onClick={() => setView("printed")}>Printed tiles</button> view.
+              </p>
+              <div className="field">
+                <span className="label">Layout</span>
+                <div className="seg small">
+                  {(
+                    [
+                      ["seamless", "One sheet"],
+                      ["jig", "Tile jig"],
+                    ] as [PrintLayout, string][]
+                  ).map(([v, t]) => (
+                    <button key={v} className={print.layout === v ? "on" : ""} onClick={() => setP("layout", v)}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="print-grid">
+                <label>
+                  Tile size
+                  <span>
+                    <input type="number" min={2} max={50} step={0.1} value={print.tileMm} onChange={(e) => setP("tileMm", +e.target.value || 8)} /> mm
+                  </span>
+                </label>
+                <label>
+                  Resolution
+                  <span>
+                    <input type="number" min={72} max={1200} step={10} value={print.dpi} onChange={(e) => setP("dpi", +e.target.value || 300)} /> dpi
+                  </span>
+                </label>
+                {print.layout === "jig" && (
+                  <>
+                    <label>
+                      Jig gap
+                      <span>
+                        <input type="number" min={0} max={20} step={0.1} value={print.gapMm} onChange={(e) => setP("gapMm", +e.target.value || 0)} /> mm
+                      </span>
+                    </label>
+                    <label>
+                      Bleed
+                      <span>
+                        <input type="number" min={0} max={2} step={0.05} value={print.bleedMm} onChange={(e) => setP("bleedMm", +e.target.value || 0)} /> mm
+                      </span>
+                    </label>
+                  </>
+                )}
+              </div>
+              {(() => {
+                const info = sheetInfo({ ...print, tiles: matrix.size });
+                return (
+                  <p className="hint">
+                    Sheet {(info.sideMm / 10).toFixed(1)} × {(info.sideMm / 10).toFixed(1)} cm · {info.sidePx.toLocaleString()} px at {info.dpi} dpi
+                    {info.dpi < print.dpi && " (lowered: the browser can't make a bigger image)"}.
+                    {print.layout === "jig"
+                      ? " Tiles are spaced as they sit in a printer jig; the photo runs a little past each edge (bleed)."
+                      : " One image the size of the finished board, for printing on a plate or a full sheet of tiles."}
+                  </p>
+                );
+              })()}
+              <button className="btn block" onClick={downloadPrint} disabled={!!busy || !image}>
+                Download print file (.png)
+              </button>
+              <p className="hint">Made from the full-resolution photo, not the brick colours. Pieces needed: {(matrix.size * matrix.size).toLocaleString()} white flat 1×1 tiles.</p>
             </section>
           </aside>
         )}
