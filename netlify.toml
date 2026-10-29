@@ -1,5 +1,4 @@
-# Netlify hosts the page only. Set VITE_API_BASE in Netlify > Site configuration >
-# Environment variables to the Render API URL, e.g. https://pieces-bricks-api.onrender.com
+# Netlify hosts the page only; the Python API runs on Render (see render.yaml).
 [build]
   base = "web"
   command = "npm ci && npm run build"
@@ -7,3 +6,6 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  # The page calls the API directly (not through a Netlify proxy, which would time out on
+  # long conversions). Change this if the Render service URL changes.
+  VITE_API_BASE = "https://pieces-bricks-api.onrender.com"
