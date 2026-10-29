@@ -1,0 +1,16 @@
+# Not needed by the deployed app (it serves web/dist and runs server.py + engine/)
+tests/
+requirements-dev.txt
+web/src/
+web/node_modules/
+web/index.html
+web/package.json
+web/package-lock.json
+web/tsconfig.json
+web/vite.config.ts
+output/
+uploads/
+input/*
+!input/.gitkeep
+**/__pycache__/
+.pytest_cache/

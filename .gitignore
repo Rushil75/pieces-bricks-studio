@@ -2,11 +2,40 @@
 input/*
 !input/.gitkeep
 !input/README.md
+
+# Generated at runtime
 uploads/
 output/
+*.log
+
+# Python
 __pycache__/
+*.py[cod]
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
 .venv/
+venv/
+
+# Secrets and local settings
 .env
+.env.*
+.vercel/
+
+# Front end (web/dist is committed: the FastAPI app serves it, locally and on Vercel)
 web/node_modules/
-# web/dist is committed: the FastAPI app serves it (locally and on Vercel)
+web/.vite/
+*.tsbuildinfo
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+__MACOSX/
