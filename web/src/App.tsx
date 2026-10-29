@@ -26,10 +26,12 @@ function download(blob: Blob, name: string) {
 }
 
 export default function App() {
-  const [samples, setSamples] = useState<{ key: string; title: string }[]>([]);
+  const [samples, setSamples] = useState<{ key: string; title: string; job?: string }[]>([]);
   const [client, setClient] = useState<PaletteColor[]>([]);
   const [photo, setPhoto] = useState<Photo | null>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
+  const [job, setJob] = useState<string | undefined>(undefined);
   const [crop, setCrop] = useState<Crop>([0, 0, 1]);
   const [opts, setOpts] = useState<ConvertOptions>(DEFAULTS);
   const [matrix, setMatrix] = useState<Matrix | null>(null);
@@ -81,16 +83,21 @@ export default function App() {
     else setError((e as Error).message);
   };
 
-  const openPhoto = async (load: () => Promise<Photo>) => {
+  const openPhoto = async (load: () => Promise<{ blob: Blob; job?: string }>) => {
     setError("");
     setBusy("Loading photo…");
     try {
-      const ph = await load();
+      const src = await load();
+      const blob = await api.preparePhoto(src.blob);
+      const ph = await api.uploadPhoto(new File([blob], "photo.jpg", { type: blob.type }));
       const img = new Image();
-      img.src = api.apiUrl(ph.view_url);
+      img.src = URL.createObjectURL(blob);
       await img.decode();
+      if (image?.src.startsWith("blob:")) URL.revokeObjectURL(image.src);
       setPhoto(ph);
       setImage(img);
+      setPhotoBlob(blob);
+      setJob(src.job);
       setCrop(clampCrop(ph.auto_crop, ph.width, ph.height));
       setMatrix(null);
       setGrid(null);
@@ -111,7 +118,8 @@ export default function App() {
     setError("");
     setBusy(`Converting to ${opts.size}×${opts.size} bricks…`);
     try {
-      const m = await api.convert(photo.id, crop, opts);
+      if (!photoBlob) return;
+      const m = await api.convert(photoBlob, crop, opts, job);
       setMatrix(m);
       setGrid(m.grid);
       setPast([]);
@@ -289,7 +297,7 @@ export default function App() {
               onDrop={(e) => {
                 e.preventDefault();
                 const f = e.dataTransfer.files[0];
-                if (f) openPhoto(() => api.uploadPhoto(f));
+                if (f) openPhoto(async () => ({ blob: f }));
               }}
             >
               <input
@@ -299,7 +307,7 @@ export default function App() {
                 hidden
                 onChange={(e) => {
                   const f = e.target.files?.[0];
-                  if (f) openPhoto(() => api.uploadPhoto(f));
+                  if (f) openPhoto(async () => ({ blob: f }));
                   e.target.value = "";
                 }}
               />
@@ -311,7 +319,7 @@ export default function App() {
                 <span className="muted">Or try a client photo:</span>
                 <div className="chips">
                   {samples.map((s) => (
-                    <button key={s.key} className="chip" onClick={() => openPhoto(() => api.loadSample(s.key))}>
+                    <button key={s.key} className="chip" onClick={() => openPhoto(async () => ({ blob: await api.sampleFile(s.key), job: s.job }))}>
                       {s.title}
                     </button>
                   ))}

@@ -1,0 +1,3 @@
+-r requirements.txt
+pytest==9.2.0
+scikit-image==0.25.2   # only to check engine/colour.py against it in tests

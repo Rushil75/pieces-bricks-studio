@@ -10,13 +10,14 @@ Environment (all optional):
 """
 import hashlib
 import hmac
+import tempfile
 import io
 import json
 import os
 import zipfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -28,8 +29,9 @@ from engine.palette import load_client_palette
 from engine.preprocess import detect_faces, load_image, plan_crop
 
 ROOT = Path(__file__).resolve().parent
-UPLOADS = ROOT / "uploads"
-UPLOADS.mkdir(exist_ok=True)
+# Serverless (Vercel) has a read-only app folder: keep uploads in the temp dir there.
+UPLOADS = Path(tempfile.gettempdir()) / "pb_uploads" if os.environ.get("VERCEL") else ROOT / "uploads"
+UPLOADS.mkdir(parents=True, exist_ok=True)
 WEB = ROOT / "web" / "dist"
 VIEW_MAX = 1600
 MAX_UPLOAD = 25 * 1024 * 1024
@@ -88,11 +90,17 @@ def _photo_path(pid):
     return hits[0]
 
 
-def _register(src_bytes, suffix, job=None):
-    pid = hashlib.sha1(src_bytes).hexdigest()[:16]
-    path = UPLOADS / f"{pid}{suffix}"
+def _save(src_bytes, suffix):
+    """Store by content hash, so the same photo reuses the engine's preprocessing cache."""
+    path = UPLOADS / f"{hashlib.sha1(src_bytes).hexdigest()[:16]}{suffix}"
     if not path.exists():
         path.write_bytes(src_bytes)
+    return path
+
+
+def _register(src_bytes, suffix, job=None):
+    path = _save(src_bytes, suffix)
+    pid = path.stem
     try:
         rgb = load_image(path)
     except Exception:
@@ -120,21 +128,25 @@ def _register(src_bytes, suffix, job=None):
     }
 
 
-@app.post("/api/upload")
-async def upload(file: UploadFile = File(...)):
+async def _read_upload(file):
     data = await file.read()
     if len(data) > MAX_UPLOAD:
         raise HTTPException(413, "photo is larger than 25 MB")
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"):
         suffix = ".img"
-    return _register(data, suffix)
+    return data, suffix
+
+
+@app.post("/api/upload")
+async def upload(file: UploadFile = File(...)):
+    return _register(*(await _read_upload(file)))
 
 
 @app.get("/api/samples")
 def samples():
     # Client photos are not in the public repo; only offer the ones present on this server.
-    return [{"key": k, "title": t} for k, (t, job) in SAMPLES.items() if _sample_file(job).exists()]
+    return [{"key": k, "title": t, "job": job} for k, (t, job) in SAMPLES.items() if _sample_file(job).exists()]
 
 
 @app.post("/api/samples/{key}")
@@ -145,7 +157,15 @@ def load_sample(key: str):
     src = _sample_file(job)
     out = _register(src.read_bytes(), src.suffix.lower(), job)
     out["title"] = SAMPLES[key][0]
+    out["job"] = job
     return out
+
+
+@app.get("/api/samples/{key}/file")
+def sample_file(key: str):
+    if key not in SAMPLES or not _sample_file(SAMPLES[key][1]).exists():
+        raise HTTPException(404)
+    return FileResponse(_sample_file(SAMPLES[key][1]))
 
 
 @app.get("/api/photo/{pid}/view")
@@ -160,7 +180,7 @@ def client_palette():
 
 
 class ConvertIn(BaseModel):
-    id: str
+    job: str | None = None
     crop: list[int] = Field(min_length=3, max_length=3)
     size: int = Field(48, ge=8, le=256)
     dither: bool = False
@@ -171,10 +191,13 @@ class ConvertIn(BaseModel):
 
 
 @app.post("/api/convert")
-def convert(body: ConvertIn):
-    path = _photo_path(body.id)
-    meta = json.loads((UPLOADS / f"{body.id}.json").read_text())
-    base = pipeline.job_settings(meta["job"]) if meta.get("job") else pipeline.default_settings()
+async def convert(file: UploadFile = File(...), options: str = Form(...)):
+    """Stateless: the photo comes with every request, so any server instance can answer
+    (serverless hosts do not share disk between requests)."""
+    body = ConvertIn.model_validate_json(options)
+    path = _save(*(await _read_upload(file)))
+    job = body.job if body.job in pipeline.load_config()["jobs"] else None
+    base = pipeline.job_settings(job) if job else pipeline.default_settings()
     s = {**base, "file": path.name, "crop": body.crop, "palette": body.palette, "colors": body.colors,
          "grid_face_detail": body.face_detail, "bg_filter": body.background}
     grid, palette, pre = pipeline.convert(path, body.size, body.dither, s)

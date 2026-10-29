@@ -1,11 +1,13 @@
 """preview.png, flat.png, grid.png, compare.png -- all drawn from a matrix.json dict."""
+from pathlib import Path
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from .palette import hex_to_rgb
 
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+FONT = str(Path(__file__).resolve().parent / "fonts" / "DejaVuSans.ttf")  # bundled: hosts lack system fonts
+FONT_BOLD = str(Path(__file__).resolve().parent / "fonts" / "DejaVuSans-Bold.ttf")
 GAP = (24, 22, 26)
 
 
@@ -15,7 +17,9 @@ def cell_sizes(n):
         return 22, 10, 30
     if n <= 128:
         return 12, 6, 22
-    return 8, 4, 18
+    if n <= 192:
+        return 8, 4, 18
+    return 8, 4, 15  # keeps the 256x256 download pack under serverless 4.5 MB responses
 
 
 def _font(size, bold=False):

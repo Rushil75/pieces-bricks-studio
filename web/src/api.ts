@@ -117,14 +117,47 @@ export async function clientPalette(): Promise<{ version: string; colors: Palett
   return json(await call("/api/palette"));
 }
 
-export async function convert(id: string, crop: Crop, o: ConvertOptions): Promise<Matrix> {
-  return json(
-    await call("/api/convert", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, crop, ...o }),
-    }),
-  );
+// The photo goes with every conversion: serverless hosts don't keep uploads between requests.
+export async function convert(photo: Blob, crop: Crop, o: ConvertOptions, job?: string): Promise<Matrix> {
+  const fd = new FormData();
+  fd.append("file", photo, "photo.jpg");
+  fd.append("options", JSON.stringify({ crop, job: job ?? null, ...o }));
+  return json(await call("/api/convert", { method: "POST", body: fd }));
+}
+
+export async function sampleFile(key: string): Promise<Blob> {
+  const res = await call(`/api/samples/${key}/file`);
+  if (!res.ok) await json(res);
+  return res.blob();
+}
+
+const MAX_SIDE = 3000; // far more than the engine needs per brick
+const MAX_BYTES = 4_000_000; // hosted requests are capped at 4.5 MB
+
+/** EXIF-rotate and shrink a photo so it uploads fast and fits the request limit. */
+export async function preparePhoto(file: Blob): Promise<Blob> {
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  let side = Math.min(MAX_SIDE, Math.max(bmp.width, bmp.height));
+  if (file.size <= MAX_BYTES && side === Math.max(bmp.width, bmp.height) && file.type === "image/jpeg") {
+    bmp.close();
+    return file;
+  }
+  for (let quality = 0.95; ; ) {
+    const k = side / Math.max(bmp.width, bmp.height);
+    const cv = document.createElement("canvas");
+    cv.width = Math.round(bmp.width * k);
+    cv.height = Math.round(bmp.height * k);
+    const ctx = cv.getContext("2d")!;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bmp, 0, 0, cv.width, cv.height);
+    const blob = await new Promise<Blob>((ok) => cv.toBlob((b) => ok(b!), "image/jpeg", quality));
+    if (blob.size <= MAX_BYTES || side < 800) {
+      bmp.close();
+      return blob;
+    }
+    if (quality > 0.86) quality -= 0.04;
+    else side = Math.round(side * 0.85);
+  }
 }
 
 export async function exportPack(matrix: Matrix): Promise<Blob> {

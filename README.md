@@ -27,24 +27,25 @@ download pack (zip) is rendered on the server from the edited matrix.
 
 For front-end development, run `npm run dev` in `web/` (it proxies `/api` to port 8000).
 
-## Hosting: page on Netlify, API on Render
+## Hosting on Vercel (one project)
 
-Netlify serves static pages only. The Python engine (OpenCV, scikit-image) runs as a Docker
-service on Render, and the page calls it directly.
+Vercel runs `server.py` (FastAPI) as one Python function, which serves both the page
+(`web/dist`, committed) and the `/api` routes, the same as `uvicorn server:app` locally.
 
-1. **API on Render**: render.com > New > Blueprint > pick this repo (it reads `render.yaml`).
-   Set `ALLOWED_ORIGINS` to the Netlify URL (you can fill it in after step 2), and optionally
-   `DEMO_PASSWORD`. Check that `https://<service>.onrender.com/api/health` returns `{"ok": true}`.
-2. **Page on Netlify**: Add new site > Import from Git > pick this repo and the branch. `netlify.toml`
-   sets the build. In Site configuration > Environment variables, add
-   `VITE_API_BASE = https://<service>.onrender.com`, then redeploy.
-3. Put the Netlify URL in Render's `ALLOWED_ORIGINS` and let it redeploy.
+1. Vercel > Add New > Project > import this repo. Keep Root Directory `./` and choose the
+   **FastAPI** preset (or "Import single project" on the `app` FastAPI entry).
+2. Optional environment variable: `DEMO_PASSWORD` (the page then asks for it).
+3. Deploy.
 
-The client photos are not in the repo. To offer the "try a client photo" buttons on the hosted
-demo, copy them into `input/` in a private fork or on the server. Uploads work without them.
-Render's free plan sleeps after 15 minutes idle, so the page shows "Starting the mosaic server…"
-for up to a minute on the first visit. The free plan has 512 MB of memory, which is enough for
-boards up to about 192×192; use a paid plan for 256×256 with dithering.
+Fitting the serverless limits:
+- Dependencies are kept to about 250 MB: plain `opencv-python-headless`, and colour maths in
+  `engine/colour.py` (NumPy) instead of scikit-image and SciPy. `tests/test_colour.py` checks it
+  against scikit-image (`pip install -r requirements-dev.txt`).
+- The API is stateless: the page sends the photo with every conversion, shrunk in the browser
+  to at most 3000 px and 4 MB, because requests are capped at 4.5 MB.
+- After changing the front end, run `npm run build` in `web/` and commit `web/dist`.
+- The client photos are not in the repo, so the "try a client photo" buttons only appear where
+  `input/` holds them. Uploads always work.
 
 ## Similarity score
 

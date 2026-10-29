@@ -1,8 +1,8 @@
 """Steps 7-8: area downscale to N x N, CIEDE2000 matching, optional LAB dithering."""
 import cv2
 import numpy as np
-from skimage.color import deltaE_ciede2000
 
+from .colour import deltaE_ciede2000
 from .palette import ciede2000_matrix, lab_to_rgb_u8, rgb_to_lab
 
 

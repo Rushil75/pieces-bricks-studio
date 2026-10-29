@@ -6,7 +6,8 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from skimage.color import deltaE_ciede2000, lab2rgb, rgb2lab
+
+from .colour import deltaE_ciede2000, lab2rgb, rgb2lab
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 
@@ -21,7 +22,7 @@ def rgb_to_hex(rgb):
 
 
 def rgb_to_lab(rgb_u8):
-    """sRGB uint8 (..., 3) -> CIELAB D65. skimage linearises sRGB internally."""
+    """sRGB uint8 (..., 3) -> CIELAB D65. sRGB is linearised first."""
     return rgb2lab(np.asarray(rgb_u8, dtype=np.float64) / 255.0)
 
 

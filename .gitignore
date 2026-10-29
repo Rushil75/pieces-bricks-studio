@@ -9,4 +9,4 @@ __pycache__/
 .venv/
 .env
 web/node_modules/
-web/dist/
+# web/dist is committed: the FastAPI app serves it (locally and on Vercel)
