@@ -63,7 +63,9 @@ def convert(path, size, dither, s):
         palette = client
     else:
         weights = 1.0 + (s["face_weight"] - 1.0) * np.clip(fmask, 0, 1)
-        palette = build_adaptive_palette(cells, weights, int(s["colors"]), s["kL"], reference=client)
+        palette = build_adaptive_palette(cells, weights, int(s["colors"]), s["kL"], reference=client,
+                                         reserve=s.get("palette_reserve", 0.2), iters=s.get("palette_iters", 25),
+                                         inits=tuple(s.get("palette_inits", ["mediancut"])), polish=s.get("palette_polish", 0))
 
     if dither:
         idx = fs_dither(cells, palette, fmask, s["dither_strength"], s["dither_face_strength"], s["dither_clamp"], s["kL"])

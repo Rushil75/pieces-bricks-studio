@@ -185,8 +185,8 @@ class ConvertIn(BaseModel):
     size: int = Field(48, ge=8, le=256)
     dither: bool = False
     palette: str = Field("adaptive", pattern="^(adaptive|client)$")
-    colors: int = Field(160, ge=4, le=256)
-    face_detail: float = Field(0.3, ge=0, le=2)
+    colors: int = Field(60, ge=4, le=256)
+    face_detail: float = Field(0.15, ge=0, le=2)
     background: str = Field("bilateral", pattern="^(bilateral|meanshift|none)$")
 
 

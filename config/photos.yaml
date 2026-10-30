@@ -3,15 +3,17 @@
 
 defaults:
   palette: adaptive        # adaptive = best colours for this photo; client = fixed 40 (C01-C40)
-  colors: 160              # adaptive palette size (max 256); more colours = closer to the photo
+  colors: 60               # client's limit: at most 60 colours per mosaic (engine allows up to 256)
   face_weight: 6.0         # face cells count this much more when choosing adaptive colours
-  kL: 0.85                 # CIEDE2000 lightness factor (<1 = keep eye/shadow contrast)
-  grid_face_detail: 0.3    # brick-scale lightness sharpening inside faces (eyes, brows, mouth)
+  kL: 0.7                  # CIEDE2000 lightness factor (<1 = keep eye/shadow contrast)
+  palette_reserve: 0.1     # share of colours kept for small details (eyes, lips)
+  palette_polish: 10       # extra k-means steps after adding the detail colours
+  grid_face_detail: 0.15   # brick-scale lightness sharpening inside faces (eyes, brows, mouth)
   grid_detail_sigma: 0.8   # in bricks
   face_score: 0.8
   crop: auto               # or [x, y, size] in original pixels
   crop_mode: auto          # auto | single (frame only the largest face)
-  face_scale: 3.0          # single face: crop side = face size x this
+  face_scale: 2.4          # single face: crop side = face size x this (2.4 = head + shoulders, face ~15 bricks at 48)
   shift_down: 0.12         # move crop centre down (fraction of crop side) to include shoulders
   group_pad: 1.6           # group: padding around all faces, in median face sizes
   upscale_min: 1000
@@ -21,7 +23,7 @@ defaults:
   sharpen: 0.0
   face_sharpen: 0.4
   sharpen_sigma: 1.5
-  saturation: 1.04
+  saturation: 1.0          # tuned for 48x48 / 60 colours: boosting costs similarity
   bg_filter: bilateral     # bilateral | meanshift | none
   bg_spatial: 12
   bg_color: 40
@@ -40,7 +42,7 @@ jobs:
   p4:
     file: p4_toddler_bench.jpg
     sizes: [48]
-    face_scale: 2.7
+    face_scale: 2.4
     shift_down: 0.16
     face_sharpen: 0.8
 
@@ -53,7 +55,6 @@ jobs:
     file: p2_studio_family.png
     sizes: [48, 96]
     crop: [0, 0, 850]
-    colors: 256              # five people in bright clothes: needs more colours for 95%+
 
   p2b:
     file: p2_studio_family.png

@@ -53,11 +53,11 @@ Every result records `similarity` in matrix.json, and the CLI and the page show 
 the untouched crop averaged under each brick: the most detail an N×N board can hold. The score is
 50 % the share of bricks within CIEDE2000 ΔE ≤ 5 of that colour, plus 50 % structural similarity
 (SSIM on lightness). Mean ΔE, the share under ΔE 2.3 (no visible difference) and the face-only ΔE
-are stored too. All current results score 95–98.5 % without dithering.
+are stored too. Tuned for the client's rules (48×48, at most 60 colours): single-person photos score 95.6–97.1 % without dithering; group photos 90–95 %.
 
 ## Palette modes
 
-- `adaptive` (default): picks the best `colors` (default 160, up to 256) for each photo with weighted k-means in
+- `adaptive` (default): picks the best `colors` (default 60, the client's limit; the engine allows up to 256) for each photo with weighted k-means in
   LAB. Face cells count more, and 20 % of the colour budget goes to the worst-matched cells, so small
   details such as eyes and lips keep their real colour. Codes are `A01…`, ordered dark to light. Each
   colour also lists its nearest client colour.

@@ -69,34 +69,8 @@ def load_client_palette(path=None):
     return Palette("client", data["version"], data["colors"])
 
 
-def build_adaptive_palette(cells_rgb, weights, n_colors, kL=1.0, iters=25, reference=None, reserve=0.2,
-                           max_fit=9216):
-    """Pick the n_colors that best represent the grid cells (weighted k-means in LAB).
-
-    Deterministic: median-cut initialisation, then Lloyd iterations with CIEDE2000
-    assignment. `weights` lets face cells pull more colours towards skin tones.
-    A `reserve` share of the budget is then spent greedily on the worst-matched cells
-    (weighted), so small but important details such as eyes and lips keep their colour.
-    """
-    cells_rgb = cells_rgb.reshape(-1, 3).astype(np.uint8)
-    w = np.asarray(weights, dtype=np.float64).reshape(-1)
-    if len(cells_rgb) > max_fit:
-        # Big boards: fit on an evenly spread, deterministic sample of cells (keeps it fast).
-        idx = np.linspace(0, len(cells_rgb) - 1, max_fit).round().astype(int)
-        cells_rgb, w = cells_rgb[idx], w[idx]
-    n_extra = int(round(n_colors * reserve))
-    n_colors -= n_extra
-
-    # Median cut on the cells, repeating face cells so they get a fair share of boxes.
-    reps = np.clip(np.round(w), 1, None).astype(int)
-    seed_px = np.repeat(cells_rgb, reps, axis=0)
-    seed_img = Image.fromarray(seed_px.reshape(1, -1, 3))
-    q = seed_img.quantize(colors=n_colors, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
-    pal = np.array(q.getpalette()[: 3 * n_colors], dtype=np.uint8).reshape(-1, 3)
-    used = np.unique(np.asarray(q).reshape(-1))
-    centers = rgb_to_lab(pal[used])
-
-    lab = rgb_to_lab(cells_rgb)
+def _lloyd(lab, w, centers, kL, iters):
+    """Weighted k-means: CIEDE2000 assignment, weighted LAB means. Empty clusters are dropped."""
     for _ in range(iters):
         assign = ciede2000_matrix(lab, centers, kL).argmin(axis=1)
         new = []
@@ -105,18 +79,82 @@ def build_adaptive_palette(cells_rgb, weights, n_colors, kL=1.0, iters=25, refer
             if sel.any():
                 new.append((lab[sel] * w[sel, None]).sum(0) / w[sel].sum())
         new = np.array(new)
-        if new.shape == centers.shape and np.abs(new - centers).max() < 0.05:
-            centers = new
-            break
+        done = new.shape == centers.shape and np.abs(new - centers).max() < 0.05
         centers = new
-
-    err = ciede2000_matrix(lab, centers, kL).min(axis=1)
-    for _ in range(n_extra):
-        i = int(np.argmax(err * w))
-        if err[i] < 1.0:
+        if done:
             break
-        centers = np.vstack([centers, lab[i]])
+    return centers
+
+
+def _init_quantize(cells_rgb, w, n, method):
+    """PIL quantizer seed (median cut / max coverage), repeating face cells so they get a fair share."""
+    reps = np.clip(np.round(w), 1, None).astype(int)
+    seed_img = Image.fromarray(np.repeat(cells_rgb, reps, axis=0).reshape(1, -1, 3))
+    q = seed_img.quantize(colors=n, method=method, dither=Image.Dither.NONE)
+    pal = np.array(q.getpalette()[: 3 * n], dtype=np.uint8).reshape(-1, 3)
+    return rgb_to_lab(pal[np.unique(np.asarray(q).reshape(-1))])
+
+
+def _init_farthest(lab, w, n, kL):
+    """Deterministic k-means++-style seed: start at the heaviest cell, then keep adding the cell
+    with the largest weighted distance to the colours chosen so far."""
+    centers = [lab[int(np.argmax(w))]]
+    err = deltaE_ciede2000(lab, np.broadcast_to(centers[0], lab.shape), kL=kL)
+    for _ in range(n - 1):
+        i = int(np.argmax(err * w))
+        centers.append(lab[i])
         err = np.minimum(err, deltaE_ciede2000(lab, np.broadcast_to(lab[i], lab.shape), kL=kL))
+    return np.array(centers)
+
+
+INITS = ("mediancut", "maxcoverage", "farthest")
+
+
+def build_adaptive_palette(cells_rgb, weights, n_colors, kL=1.0, iters=25, reference=None, reserve=0.2,
+                           max_fit=9216, inits=("mediancut",), polish=0):
+    """Pick the n_colors that best represent the grid cells (weighted k-means in LAB).
+
+    Deterministic: each seed in `inits` (median cut, max coverage, farthest point) is refined
+    with Lloyd iterations using CIEDE2000 assignment, and the palette with the lowest weighted
+    error wins. `weights` lets face cells pull more colours towards skin tones. A `reserve`
+    share of the budget is then spent greedily on the worst-matched cells (weighted), so small
+    but important details such as eyes and lips keep their colour; `polish` runs a few more
+    Lloyd steps over the whole palette afterwards.
+    """
+    cells_rgb = cells_rgb.reshape(-1, 3).astype(np.uint8)
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
+    if len(cells_rgb) > max_fit:
+        # Big boards: fit on an evenly spread, deterministic sample of cells (keeps it fast).
+        idx = np.linspace(0, len(cells_rgb) - 1, max_fit).round().astype(int)
+        cells_rgb, w = cells_rgb[idx], w[idx]
+    n_extra = int(round(n_colors * reserve))
+    n_main = n_colors - n_extra
+    lab = rgb_to_lab(cells_rgb)
+
+    best, best_cost = None, np.inf
+    for init in inits:
+        if init == "farthest":
+            seed = _init_farthest(lab, w, n_main, kL)
+        else:
+            method = Image.Quantize.MAXCOVERAGE if init == "maxcoverage" else Image.Quantize.MEDIANCUT
+            seed = _init_quantize(cells_rgb, w, n_main, method)
+        centers = _lloyd(lab, w, seed, kL, iters)
+
+        err = ciede2000_matrix(lab, centers, kL).min(axis=1)
+        for _ in range(n_extra):
+            i = int(np.argmax(err * w))
+            if err[i] < 1.0:
+                break
+            centers = np.vstack([centers, lab[i]])
+            err = np.minimum(err, deltaE_ciede2000(lab, np.broadcast_to(lab[i], lab.shape), kL=kL))
+        if polish:
+            centers = _lloyd(lab, w, centers, kL, polish)
+            err = ciede2000_matrix(lab, centers, kL).min(axis=1)
+
+        cost = float((err * w).sum())
+        if cost < best_cost:
+            best, best_cost = centers, cost
+    centers = best
 
     # Snap to real sRGB colours, drop duplicates, order dark -> light.
     rgb = np.unique(lab_to_rgb_u8(centers), axis=0)

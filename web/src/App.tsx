@@ -12,8 +12,8 @@ const DEFAULTS: ConvertOptions = {
   size: 48,
   dither: false,
   palette: "adaptive",
-  colors: 160,
-  face_detail: 0.3,
+  colors: 60,
+  face_detail: 0.15,
   background: "bilateral",
 };
 
@@ -385,7 +385,7 @@ export default function App() {
               {opts.palette === "adaptive" && (
                 <label className="slider">
                   <span>Max colours</span>
-                  <input type="range" min={16} max={256} value={opts.colors} onChange={(e) => set("colors", +e.target.value)} />
+                  <input type="range" min={16} max={60} value={opts.colors} onChange={(e) => set("colors", +e.target.value)} />
                   <output>{opts.colors}</output>
                 </label>
               )}
