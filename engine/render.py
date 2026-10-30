@@ -40,25 +40,25 @@ def _mix(c, t, a):
 def _brick_tile(rgb, cell, ss=4):
     """One brick with a round stud, drawn supersampled then reduced for smooth edges."""
     s = cell * ss
-    # Gap, bevel and shading scale with the brick (same rules as web/src/bricks.ts), so small
-    # bricks keep the photo's brightness instead of being dominated by dark edges.
+    # Bricks touch like real ones: the seam is a darker shade of the brick's own colour (no black
+    # grid), and the stud's shadow and highlight give the 3D look. Same rules as web/src/bricks.ts.
     k = min(1.0, max(0.35, (cell - 4) / 16))
-    g = max(1, round(s * 0.045))
-    bev = max(1, round(s * 0.045))
-    im = Image.new("RGB", (s, s), GAP if cell >= 16 else _mix(rgb, (0, 0, 0), 0.5))
+    g = max(1, round(s * 0.025))
+    bev = max(1, round(s * 0.04))
+    im = Image.new("RGB", (s, s), _mix(rgb, (0, 0, 0), 0.35))
     d = ImageDraw.Draw(im)
-    light, dark = _mix(rgb, (255, 255, 255), 0.14 * k), _mix(rgb, (0, 0, 0), 0.16 * k)
+    light, dark = _mix(rgb, (255, 255, 255), 0.12 * k), _mix(rgb, (0, 0, 0), 0.12 * k)
     d.rectangle([g, g, s - g - 1, s - g - 1], fill=dark)                   # bottom/right shade
     d.rectangle([g, g, s - g - 1 - bev, s - g - 1 - bev], fill=light)      # top/left bevel
     d.rectangle([g + bev, g + bev, s - g - 1 - bev, s - g - 1 - bev], fill=rgb)
-    c, r = s / 2, s * 0.31
-    off = s * 0.04 * k
-    d.ellipse([c - r + off, c - r + off, c + r + off, c + r + off], fill=_mix(rgb, (0, 0, 0), 0.22 * k))  # stud shadow
-    d.ellipse([c - r, c - r, c + r, c + r], fill=_mix(rgb, (255, 255, 255), 0.08 * k))
-    ri = r * 0.84
-    d.ellipse([c - ri, c - ri, c + ri, c + ri], fill=rgb)
-    d.arc([c - r * 0.9, c - r * 0.9, c + r * 0.9, c + r * 0.9], 195, 255,
-          fill=_mix(rgb, (255, 255, 255), 0.45 * k), width=max(1, round(s * 0.064)))
+    c, r = s / 2, s * 0.3
+    off = s * 0.045 * k
+    d.ellipse([c - r + off, c - r + off, c + r + off, c + r + off], fill=_mix(rgb, (0, 0, 0), 0.3 * k))  # stud shadow
+    d.ellipse([c - r, c - r, c + r, c + r], fill=_mix(rgb, (0, 0, 0), 0.1 * k))                          # stud side
+    ri, o = r * 0.86, off * 0.4
+    d.ellipse([c - ri - o, c - ri - o, c + ri - o, c + ri - o], fill=_mix(rgb, (255, 255, 255), 0.06 * k))  # stud top
+    d.arc([c - ri, c - ri, c + ri, c + ri], 190, 265,
+          fill=_mix(rgb, (255, 255, 255), 0.5 * k), width=max(1, round(s * 0.05)))                         # highlight
     return im.resize((cell, cell), Image.LANCZOS)
 
 

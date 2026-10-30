@@ -1,6 +1,5 @@
 // Canvas brick tiles. Same look as engine/render.py so the page matches preview.png.
 
-const GAP = "rgb(24,22,26)";
 
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
@@ -62,37 +61,37 @@ export function brickTile(hex: string, cell: number): HTMLCanvasElement {
   big.width = big.height = s;
   const d = big.getContext("2d")!;
   const rgb = hexToRgb(hex);
-  // Gap, bevel and shading scale with the brick, so small bricks (96x96 on screen)
-  // keep their real brightness instead of being dominated by dark edges.
+  // Bricks touch like real ones: the seam is a darker shade of the brick's own colour (no black
+  // grid), and the stud's shadow and highlight give the 3D look. Same rules as engine/render.py.
   const k = Math.min(1, Math.max(0.35, (cell - 4) / 16));
-  const g = Math.max(1, Math.round(s * 0.045));
-  const bev = Math.max(1, Math.round(s * 0.045));
+  const g = Math.max(1, Math.round(s * 0.025));
+  const bev = Math.max(1, Math.round(s * 0.04));
 
-  d.fillStyle = cell >= 16 ? GAP : mix(rgb, 0, 0.5);
+  d.fillStyle = mix(rgb, 0, 0.35);
   d.fillRect(0, 0, s, s);
-  d.fillStyle = mix(rgb, 0, 0.16 * k);
+  d.fillStyle = mix(rgb, 0, 0.12 * k);
   d.fillRect(g, g, s - 2 * g, s - 2 * g);
-  d.fillStyle = mix(rgb, 255, 0.14 * k);
+  d.fillStyle = mix(rgb, 255, 0.12 * k);
   d.fillRect(g, g, s - 2 * g - bev, s - 2 * g - bev);
   d.fillStyle = hex;
   d.fillRect(g + bev, g + bev, s - 2 * g - 2 * bev, s - 2 * g - 2 * bev);
 
   const c = s / 2;
-  const r = s * 0.31;
-  const off = s * 0.04 * k;
+  const r = s * 0.3;
+  const off = s * 0.045 * k;
   const circle = (x: number, y: number, rad: number, fill: string) => {
     d.beginPath();
     d.arc(x, y, rad, 0, Math.PI * 2);
     d.fillStyle = fill;
     d.fill();
   };
-  circle(c + off, c + off, r, mix(rgb, 0, 0.22 * k));
-  circle(c, c, r, mix(rgb, 255, 0.08 * k));
-  circle(c, c, r * 0.84, hex);
+  circle(c + off, c + off, r, mix(rgb, 0, 0.3 * k)); // stud shadow
+  circle(c, c, r, mix(rgb, 0, 0.1 * k)); // stud side
+  circle(c - off * 0.4, c - off * 0.4, r * 0.86, mix(rgb, 255, 0.06 * k)); // stud top
   d.beginPath();
-  d.arc(c, c, r * 0.9, (195 * Math.PI) / 180, (255 * Math.PI) / 180);
-  d.strokeStyle = mix(rgb, 255, 0.45 * k);
-  d.lineWidth = Math.max(1, s * 0.064);
+  d.arc(c, c, r * 0.86, (190 * Math.PI) / 180, (265 * Math.PI) / 180);
+  d.strokeStyle = mix(rgb, 255, 0.5 * k); // highlight
+  d.lineWidth = Math.max(1, s * 0.05);
   d.stroke();
 
   const tile = document.createElement("canvas");
