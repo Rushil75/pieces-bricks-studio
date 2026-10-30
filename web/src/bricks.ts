@@ -64,14 +64,14 @@ export function brickTile(hex: string, cell: number): HTMLCanvasElement {
   // Bricks touch like real ones: the seam is a darker shade of the brick's own colour (no black
   // grid), and the stud's shadow and highlight give the 3D look. Same rules as engine/render.py.
   const k = Math.min(1, Math.max(0.35, (cell - 4) / 16));
-  const g = Math.max(1, Math.round(s * 0.025));
+  const g = Math.max(1, Math.round(s * 0.012));
   const bev = Math.max(1, Math.round(s * 0.04));
 
-  d.fillStyle = mix(rgb, 0, 0.35);
+  d.fillStyle = mix(rgb, 0, 0.16);
   d.fillRect(0, 0, s, s);
-  d.fillStyle = mix(rgb, 0, 0.12 * k);
+  d.fillStyle = mix(rgb, 0, 0.07 * k);
   d.fillRect(g, g, s - 2 * g, s - 2 * g);
-  d.fillStyle = mix(rgb, 255, 0.12 * k);
+  d.fillStyle = mix(rgb, 255, 0.1 * k);
   d.fillRect(g, g, s - 2 * g - bev, s - 2 * g - bev);
   d.fillStyle = hex;
   d.fillRect(g + bev, g + bev, s - 2 * g - 2 * bev, s - 2 * g - 2 * bev);

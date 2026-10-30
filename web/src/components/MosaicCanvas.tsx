@@ -33,7 +33,7 @@ export default function MosaicCanvas(p: Props) {
   const [width, setWidth] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [split, setSplit] = useState(0.5);
-  const [plates, setPlates] = useState(true);
+  const [plates, setPlates] = useState(false);
   const [hover, setHover] = useState<{ r: number; c: number } | null>(null);
   const n = p.grid.length;
   const labels = p.view === "numbers";
@@ -138,7 +138,7 @@ export default function MosaicCanvas(p: Props) {
 
     // Baseplate seams, so the board reads as the real set of plates.
     if (plates && n % PLATE === 0 && n > PLATE && (p.view === "bricks" || p.view === "flat" || p.view === "printed")) {
-      ctx.strokeStyle = "rgba(255,255,255,0.75)";
+      ctx.strokeStyle = "rgba(255,255,255,0.4)";
       ctx.lineWidth = Math.max(1, dpr);
       ctx.beginPath();
       for (let k = PLATE; k < n; k += PLATE) {

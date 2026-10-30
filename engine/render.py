@@ -43,11 +43,11 @@ def _brick_tile(rgb, cell, ss=4):
     # Bricks touch like real ones: the seam is a darker shade of the brick's own colour (no black
     # grid), and the stud's shadow and highlight give the 3D look. Same rules as web/src/bricks.ts.
     k = min(1.0, max(0.35, (cell - 4) / 16))
-    g = max(1, round(s * 0.025))
+    g = max(1, round(s * 0.012))
     bev = max(1, round(s * 0.04))
-    im = Image.new("RGB", (s, s), _mix(rgb, (0, 0, 0), 0.35))
+    im = Image.new("RGB", (s, s), _mix(rgb, (0, 0, 0), 0.16))
     d = ImageDraw.Draw(im)
-    light, dark = _mix(rgb, (255, 255, 255), 0.12 * k), _mix(rgb, (0, 0, 0), 0.12 * k)
+    light, dark = _mix(rgb, (255, 255, 255), 0.1 * k), _mix(rgb, (0, 0, 0), 0.07 * k)
     d.rectangle([g, g, s - g - 1, s - g - 1], fill=dark)                   # bottom/right shade
     d.rectangle([g, g, s - g - 1 - bev, s - g - 1 - bev], fill=light)      # top/left bevel
     d.rectangle([g + bev, g + bev, s - g - 1 - bev, s - g - 1 - bev], fill=rgb)
