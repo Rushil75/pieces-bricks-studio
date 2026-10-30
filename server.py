@@ -183,11 +183,16 @@ class ConvertIn(BaseModel):
     job: str | None = None
     crop: list[int] = Field(min_length=3, max_length=3)
     size: int = Field(48, ge=8, le=256)
-    dither: bool = False
+    dither: float = Field(0, ge=0, le=100)  # 0 = off; strength in %
     palette: str = Field("adaptive", pattern="^(adaptive|client)$")
     colors: int = Field(60, ge=4, le=256)
     face_detail: float = Field(0.15, ge=0, le=2)
     background: str = Field("bilateral", pattern="^(bilateral|meanshift|none)$")
+    detail: float = Field(1.0, ge=0, le=5)
+    brightness: int = Field(0, ge=-100, le=100)
+    contrast: int = Field(0, ge=-100, le=100)
+    saturation: int = Field(0, ge=-100, le=100)
+    filter: str = Field("none", pattern="^(none|bw|sepia|warm|cool|vivid)$")
 
 
 @app.post("/api/convert")
@@ -199,10 +204,15 @@ async def convert(file: UploadFile = File(...), options: str = Form(...)):
     job = body.job if body.job in pipeline.load_config()["jobs"] else None
     base = pipeline.job_settings(job) if job else pipeline.default_settings()
     s = {**base, "file": path.name, "crop": body.crop, "palette": body.palette, "colors": body.colors,
-         "grid_face_detail": body.face_detail, "bg_filter": body.background}
-    grid, palette, pre = pipeline.convert(path, body.size, body.dither, s)
+         "grid_face_detail": body.face_detail, "bg_filter": body.background, "detail": body.detail,
+         "brightness": body.brightness, "contrast": body.contrast, "saturation_adj": body.saturation,
+         "filter": body.filter}
+    dither = body.dither / 100 if body.dither else False
+    grid, palette, pre, cells = pipeline.convert(path, body.size, dither, s, return_cells=True)
     settings = {**s, "crop_resolved": pre["crop_box"], "faces_in_crop": pre["faces"], "dither": body.dither}
     matrix = export.build_matrix(grid, palette, settings, {"variant": "dither" if body.dither else "nodither"})
+    # Target colour of every brick, so the page can re-match bricks when a colour is removed.
+    matrix["source"] = ["".join(f"{r:02X}{g:02X}{b:02X}" for r, g, b in row) for row in cells.tolist()]
     matrix["similarity"] = metrics.similarity(matrix, pre["crop"], pre["face_mask"])
     # The page may repaint cells with any colour of this palette, or the client's 40.
     matrix["palette_full"] = palette.entries
@@ -224,7 +234,7 @@ def _clean_matrix(m):
     missing = used - known.keys()
     if missing:
         raise HTTPException(400, f"unknown colour codes: {sorted(missing)[:5]}")
-    out = {k: v for k, v in m.items() if k != "palette_full"}
+    out = {k: v for k, v in m.items() if k not in ("palette_full", "source", "removed")}
     out["palette"] = {**m["palette"], "colors": [known[c] for c in sorted(used)]}
     out["edited"] = bool(m.get("edited"))
     return out

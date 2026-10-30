@@ -44,6 +44,14 @@ Fitting the serverless limits:
 - The API is stateless: the page sends the photo with every conversion, shrunk in the browser
   to at most 3000 px and 4 MB, because requests are capped at 4.5 MB.
 - After changing the front end, run `npm run build` in `web/` and commit `web/dist`.
+
+## Editor options (like the reference product)
+
+Adjust: Detail, Face detail, Dither (0-100), Brightness, Contrast, Saturation. Filters: None, B&W,
+Sepia, Warm, Cool, Vivid. Changes regenerate the mosaic automatically (not after painting, so
+edits are kept). Colours: count slider (max 60) and a × per colour in the counts table, which
+moves its bricks to the nearest colour still in use (CIEDE2000, same as the engine; undoable).
+Defaults are tuned for faithful portraits: Detail 1, everything else neutral.
 - The client photos are not in the repo, so the "try a client photo" buttons only appear where
   `input/` holds them. Uploads always work.
 

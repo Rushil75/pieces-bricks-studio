@@ -25,6 +25,7 @@ export interface Matrix {
   variant: string;
   edited?: boolean;
   similarity?: Similarity;
+  source?: string[]; // target colour of every brick (RRGGBB per cell), to re-match removed colours
   grid: string[][];
 }
 
@@ -37,9 +38,16 @@ export interface Similarity {
   face_mean_delta_e?: number;
 }
 
+export type Filter = "none" | "bw" | "sepia" | "warm" | "cool" | "vivid";
+
 export interface ConvertOptions {
   size: number;
-  dither: boolean;
+  dither: number; // 0 = off, else strength in %
+  detail: number;
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  filter: Filter;
   palette: "adaptive" | "client";
   colors: number;
   face_detail: number;

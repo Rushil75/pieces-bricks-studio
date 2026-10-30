@@ -209,3 +209,14 @@ button.tr:hover { background: var(--bg); }
 .print-grid span { display: flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 500; }
 .print-grid input { width: 100%; min-width: 0; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
 .link { border: 0; background: none; padding: 0; color: var(--accent); font-weight: 600; text-decoration: underline; }
+
+/* ---------- adjust / filters / colour removal ---------- */
+.adjust { display: flex; flex-direction: column; margin: 6px 0 10px; }
+.slider.adj { grid-template-columns: 82px 1fr 58px; margin-bottom: 6px; }
+.slider.adj output { display: flex; justify-content: flex-end; align-items: center; gap: 4px; }
+.reset { border: 0; background: none; padding: 0 2px; color: var(--accent); font-size: 14px; line-height: 1; }
+.chip.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.tr { grid-template-columns: 64px 1fr 44px 22px; cursor: pointer; }
+.tr .rm { border: 0; background: none; padding: 0; width: 22px; height: 22px; border-radius: 5px; color: var(--muted); font-size: 16px; line-height: 1; }
+.tr .rm:hover:not(:disabled) { background: #fdecea; color: var(--bad); }
+.updating { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }

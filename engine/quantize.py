@@ -27,6 +27,40 @@ def face_detail(cells_rgb, fmask, amount=0.5, sigma=0.8):
     return lab_to_rgb_u8(lab)
 
 
+FILTERS = ("none", "bw", "sepia", "warm", "cool", "vivid")
+
+
+def adjust(cells_rgb, s):
+    """User adjustments at brick scale, in LAB: filter, brightness, contrast, saturation and
+    detail (lightness unsharp over the whole picture). All neutral at their defaults."""
+    filt = s.get("filter", "none")
+    bright, contrast = s.get("brightness", 0) / 100, s.get("contrast", 0) / 100
+    sat, detail = s.get("saturation_adj", 0) / 100, s.get("detail", 0)
+    if filt == "none" and not (bright or contrast or sat or detail):
+        return cells_rgb
+    lab = rgb_to_lab(cells_rgb)
+    L, ab = lab[..., 0], lab[..., 1:]
+    if filt == "bw":
+        ab[:] = 0
+    elif filt == "sepia":
+        ab[:] = [6.0, 16.0]
+        ab *= (0.35 + 0.65 * np.clip(L / 100, 0, 1))[..., None]
+    elif filt == "warm":
+        ab += [3.0, 8.0]
+    elif filt == "cool":
+        ab += [-2.0, -9.0]
+    elif filt == "vivid":
+        ab *= 1.3
+        contrast += 0.12
+    L += bright * 25
+    L[:] = 50 + (L - 50) * (1 + contrast)
+    ab *= 1 + sat
+    if detail:
+        L += (L - cv2.GaussianBlur(L, (0, 0), 0.9)) * detail * 0.35
+    np.clip(L, 0, 100, out=L)
+    return lab_to_rgb_u8(lab)
+
+
 def match(cells_rgb, palette, kL=1.0):
     """Nearest palette index per cell by CIEDE2000. kL < 1 weights lightness more."""
     n = cells_rgb.shape[0]

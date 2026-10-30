@@ -11,7 +11,7 @@ from . import export, metrics, render
 from .palette import build_adaptive_palette, load_client_palette
 from .preprocess import preprocess
 from .quantize import dither as fs_dither
-from .quantize import downscale, downscale_mask, face_detail, match
+from .quantize import adjust, downscale, downscale_mask, face_detail, match
 
 ROOT = Path(__file__).resolve().parent.parent
 PREPROCESS_KEYS = (
@@ -50,13 +50,15 @@ def default_settings(overrides=None, config=None):
     return s
 
 
-def convert(path, size, dither, s):
-    """Core conversion for any photo: returns (grid codes, full palette, preprocess result)."""
+def convert(path, size, dither, s, return_cells=False):
+    """Core conversion for any photo: returns (grid codes, full palette, preprocess result),
+    plus the target colour of every brick when return_cells (used to re-match edited palettes)."""
     # Keep at least ~10 source pixels per brick on big boards.
     s = {**s, "work_max": max(int(s.get("work_max", 1600)), size * 10)}
     pre = _preprocess_cached(str(path), _freeze(s))
     fmask = downscale_mask(pre["face_mask"], size)
     cells = face_detail(downscale(pre["image"], size), fmask, s["grid_face_detail"], s["grid_detail_sigma"])
+    cells = adjust(cells, s)
 
     client = load_client_palette()
     if s["palette"] == "client":
@@ -68,11 +70,16 @@ def convert(path, size, dither, s):
                                          inits=tuple(s.get("palette_inits", ["mediancut"])), polish=s.get("palette_polish", 0))
 
     if dither:
-        idx = fs_dither(cells, palette, fmask, s["dither_strength"], s["dither_face_strength"], s["dither_clamp"], s["kL"])
+        # dither may be True (configured strength) or a 0-1 strength from the page's slider
+        strength = s["dither_strength"] if dither is True else float(dither)
+        face = s["dither_face_strength"] * strength / max(s["dither_strength"], 1e-6)
+        idx = fs_dither(cells, palette, fmask, strength, face, s["dither_clamp"], s["kL"])
     else:
         idx = match(cells, palette, s["kL"])
 
     grid = [[palette.codes[i] for i in row] for row in idx.tolist()]
+    if return_cells:
+        return grid, palette, pre, cells
     return grid, palette, pre
 
 

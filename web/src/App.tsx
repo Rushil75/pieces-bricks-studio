@@ -1,16 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "./api";
-import type { ConvertOptions, Crop, Matrix, PaletteColor, Photo } from "./api";
+import type { ConvertOptions, Crop, Filter, Matrix, PaletteColor, Photo } from "./api";
+import { hexToLab, nearest } from "./colour";
 import CropEditor, { clampCrop } from "./components/CropEditor";
 import MosaicCanvas, { type Tool, type View } from "./components/MosaicCanvas";
 import { PRINT_DEFAULTS, renderPrintSheet, sheetInfo, type PrintLayout } from "./print";
 
 const SIZES = [32, 48, 64, 96, 128, 160, 192, 256];
+const STUD_MM = 8;
+const FILTERS: [Filter, string][] = [
+  ["none", "None"],
+  ["bw", "B&W"],
+  ["sepia", "Sepia"],
+  ["warm", "Warm"],
+  ["cool", "Cool"],
+  ["vivid", "Vivid"],
+];
 const HISTORY = 100;
 
 const DEFAULTS: ConvertOptions = {
   size: 48,
-  dither: false,
+  dither: 0,
+  detail: 1,
+  brightness: 0,
+  contrast: 0,
+  saturation: 0,
+  filter: "none",
   palette: "adaptive",
   colors: 60,
   face_detail: 0.15,
@@ -114,13 +129,19 @@ export default function App() {
   const signature = JSON.stringify({ id: photo?.id, crop, opts });
   const stale = !!matrix && generatedWith !== signature;
 
-  const generate = async () => {
-    if (!photo) return;
+  const reqId = useRef(0);
+  const [updating, setUpdating] = useState(false);
+
+  // auto = a live update after a settings change: no blocking overlay, latest request wins.
+  const generate = async (auto = false) => {
+    if (!photo || !photoBlob) return;
+    const id = ++reqId.current;
     setError("");
-    setBusy(`Converting to ${opts.size}×${opts.size} bricks…`);
+    if (auto) setUpdating(true);
+    else setBusy(`Converting to ${opts.size}×${opts.size} bricks…`);
     try {
-      if (!photoBlob) return;
       const m = await api.convert(photoBlob, crop, opts, job);
+      if (id !== reqId.current) return;
       setMatrix(m);
       setGrid(m.grid);
       setPast([]);
@@ -129,9 +150,12 @@ export default function App() {
       setSelected(null);
       setSwatchTab(m.palette.name === "client" ? "client" : "mosaic");
     } catch (e) {
-      fail(e);
+      if (id === reqId.current) fail(e);
     } finally {
-      setBusy("");
+      if (id === reqId.current) {
+        setBusy("");
+        setUpdating(false);
+      }
     }
   };
 
@@ -197,6 +221,27 @@ export default function App() {
     return k;
   }, [grid, matrix]);
 
+  // Live updates like a slider editor: regenerate shortly after the last change. Skipped once
+  // bricks have been painted, so edits are never silently replaced (the button still works).
+  useEffect(() => {
+    if (!matrix || !stale || edits > 0) return;
+    const t = setTimeout(() => generate(true), 600);
+    return () => clearTimeout(t);
+  }, [signature]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Remove a colour from the mosaic: its bricks move to the nearest colour still in use,
+   * matched against each brick's target colour (same CIEDE2000 as the engine). Undoable. */
+  const removeColour = (code: string) => {
+    if (!grid || !matrix?.source) return;
+    const kL = Number(matrix.settings.kL ?? 1);
+    const allowed = counts.filter(([c]) => c !== code).map(([c]) => ({ code: c, lab: hexToLab(hexOf(c)) }));
+    if (!allowed.length) return;
+    startStroke();
+    const src = matrix.source;
+    setGrid((g) => g && g.map((row, r) => (row.includes(code) ? row.map((c, i) => (c === code ? nearest(src[r].slice(i * 6, i * 6 + 6), allowed, kL) : c)) : row)));
+    if (selected === code) setSelected(null);
+  };
+
   const [print, setPrint] = useState(PRINT_DEFAULTS);
   const setP = <K extends keyof typeof PRINT_DEFAULTS>(k: K, v: (typeof PRINT_DEFAULTS)[K]) => setPrint((o) => ({ ...o, [k]: v }));
 
@@ -233,6 +278,22 @@ export default function App() {
 
   const set = <K extends keyof ConvertOptions>(k: K, v: ConvertOptions[K]) => setOpts((o) => ({ ...o, [k]: v }));
 
+  type NumKey = "detail" | "face_detail" | "dither" | "brightness" | "contrast" | "saturation";
+  const adjustSlider = (label: string, k: NumKey, min: number, max: number, step: number, def: number) => (
+    <label className="slider adj" key={k}>
+      <span>{label}</span>
+      <input type="range" min={min} max={max} step={step} value={opts[k]} onChange={(e) => set(k, +e.target.value)} />
+      <output>
+        {step < 1 ? opts[k].toFixed(step < 0.1 ? 2 : 1) : opts[k]}
+        {opts[k] !== def && (
+          <button className="reset" title="Reset" onClick={(e) => (e.preventDefault(), set(k, def))}>
+            ↺
+          </button>
+        )}
+      </output>
+    </label>
+  );
+
   return (
     <div className="app">
       <header className="top">
@@ -251,7 +312,7 @@ export default function App() {
         {matrix && (
           <div className="top-stats">
             <span>
-              <b>{matrix.size}×{matrix.size}</b> board
+              <b>{matrix.size}×{matrix.size}</b> board · {((matrix.size * STUD_MM) / 10).toFixed(1)} × {((matrix.size * STUD_MM) / 10).toFixed(1)} cm
             </span>
             <span>
               <b>{total.toLocaleString()}</b> bricks
@@ -389,18 +450,6 @@ export default function App() {
                   <output>{opts.colors}</output>
                 </label>
               )}
-              <label className="slider">
-                <span>Face detail</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1.5}
-                  step={0.05}
-                  value={opts.face_detail}
-                  onChange={(e) => set("face_detail", +e.target.value)}
-                />
-                <output>{opts.face_detail.toFixed(2)}</output>
-              </label>
               <div className="field">
                 <span className="label">Background</span>
                 <div className="seg">
@@ -417,14 +466,35 @@ export default function App() {
                   ))}
                 </div>
               </div>
-              <label className="check">
-                <input type="checkbox" checked={opts.dither} onChange={(e) => set("dither", e.target.checked)} />
-                Dithering <span className="muted">(smoother gradients, noisier faces)</span>
-              </label>
-              <button className="btn primary block" onClick={generate} disabled={!!busy}>
+
+              <span className="label">Adjust</span>
+              <div className="adjust">
+                {adjustSlider("Detail", "detail", 0, 5, 0.5, DEFAULTS.detail)}
+                {adjustSlider("Face detail", "face_detail", 0, 1.5, 0.05, DEFAULTS.face_detail)}
+                {adjustSlider("Dither", "dither", 0, 100, 5, 0)}
+                {adjustSlider("Brightness", "brightness", -100, 100, 1, 0)}
+                {adjustSlider("Contrast", "contrast", -100, 100, 1, 0)}
+                {adjustSlider("Saturation", "saturation", -100, 100, 1, 0)}
+              </div>
+
+              <div className="field">
+                <span className="label">Filter</span>
+                <div className="chips">
+                  {FILTERS.map(([v, t]) => (
+                    <button key={v} className={`chip ${opts.filter === v ? "on" : ""}`} onClick={() => set("filter", v)}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button className="btn primary block" onClick={() => generate()} disabled={!!busy}>
                 {matrix ? (stale ? "Generate again" : "Regenerate") : "Generate mosaic"}
               </button>
-              {stale && <p className="hint warn">Settings or crop changed since the last mosaic.</p>}
+              {stale && edits > 0 && (
+                <p className="hint warn">Settings changed. Generate again to apply them (this replaces your {edits} painted bricks).</p>
+              )}
+              {matrix && !(stale && edits > 0) && <p className="hint">Changes update the mosaic automatically.</p>}
             </section>
           )}
         </aside>
@@ -449,6 +519,11 @@ export default function App() {
                     </button>
                   ))}
                 </div>
+                {updating && (
+                  <span className="updating" role="status">
+                    <span className="spinner sm" /> Updating…
+                  </span>
+                )}
                 <div className="tools" hidden={view === "printed"}>
                   <div className="seg">
                     <button className={tool === "paint" ? "on" : ""} onClick={() => setTool("paint")} title="Paint bricks with the selected colour">
@@ -556,6 +631,8 @@ export default function App() {
                 <p className="hint">
                   Measured against the photo averaged under each brick, the most detail a {matrix.size}×{matrix.size} board can hold.
                   {edits > 0 && " Score is for the generated mosaic, before your edits."}
+                  {(opts.filter !== "none" || opts.brightness || opts.contrast || opts.saturation || opts.detail > DEFAULTS.detail) &&
+                    " Filters and adjustments change the picture on purpose, so they lower this score."}
                 </p>
               </section>
             )}
@@ -598,28 +675,42 @@ export default function App() {
 
             <section className="counts">
               <h2>
-                Brick counts <span className="muted">{edits ? `· ${edits} edited` : ""}</span>
+                Brick counts <span className="muted">· {counts.length} colours{edits ? ` · ${edits} edited` : ""}</span>
               </h2>
               <div className="table">
                 <div className="tr th">
                   <span>Code</span>
                   <span>Name</span>
                   <span className="num">Qty</span>
+                  <span />
                 </div>
                 {counts.map(([code, q]) => (
-                  <button key={code} className={`tr ${selected === code ? "on" : ""}`} onClick={() => setSelected(code)}>
+                  <div key={code} role="button" tabIndex={0} className={`tr ${selected === code ? "on" : ""}`} onClick={() => setSelected(code)}
+                    onKeyDown={(e) => e.key === "Enter" && setSelected(code)}>
                     <span className="code">
                       <span className="sw" style={{ background: hexOf(code) }} />
                       {code}
                     </span>
                     <span className="name">{nameOf(code)}</span>
                     <span className="num">{q}</span>
-                  </button>
+                    <button
+                      className="rm"
+                      title={`Remove ${code}: its bricks switch to the nearest colour in use`}
+                      disabled={counts.length <= 1 || !matrix.source}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeColour(code);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
                 ))}
                 <div className={`tr total ${total === matrix.size * matrix.size ? "ok" : "bad"}`}>
                   <span>Total</span>
                   <span>{total === matrix.size * matrix.size ? "matches the board ✓" : "does not match the board"}</span>
                   <span className="num">{total.toLocaleString()}</span>
+                  <span />
                 </div>
               </div>
             </section>

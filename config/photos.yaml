@@ -9,6 +9,7 @@ defaults:
   palette_reserve: 0.1     # share of colours kept for small details (eyes, lips)
   palette_polish: 10       # extra k-means steps after adding the detail colours
   grid_face_detail: 0.15   # brick-scale lightness sharpening inside faces (eyes, brows, mouth)
+  detail: 1.0              # brick-scale lightness sharpening over the whole picture (page slider 0-5)
   grid_detail_sigma: 0.8   # in bricks
   face_score: 0.8
   crop: auto               # or [x, y, size] in original pixels
