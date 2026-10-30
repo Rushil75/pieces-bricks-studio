@@ -6,8 +6,11 @@ import CropEditor, { clampCrop } from "./components/CropEditor";
 import MosaicCanvas, { type Tool, type View } from "./components/MosaicCanvas";
 import { PRINT_DEFAULTS, renderPrintSheet, sheetInfo, type PrintLayout } from "./print";
 
-const SIZES = [32, 48, 64, 96, 128, 160, 192, 256];
 const STUD_MM = 8;
+const PLATE = 24; // studs per side of one baseplate
+// Boards are whole baseplates, like the reference product: 2x2 plates = 48x48 studs = 38.4 cm.
+const SIZES = [2, 3, 4, 5, 6, 7, 8].map((p) => p * PLATE);
+const cm = (studs: number) => ((studs * STUD_MM) / 10).toFixed(1);
 const FILTERS: [Filter, string][] = [
   ["none", "None"],
   ["bw", "B&W"],
@@ -312,7 +315,11 @@ export default function App() {
         {matrix && (
           <div className="top-stats">
             <span>
-              <b>{matrix.size}×{matrix.size}</b> board · {((matrix.size * STUD_MM) / 10).toFixed(1)} × {((matrix.size * STUD_MM) / 10).toFixed(1)} cm
+              <b>
+                {cm(matrix.size)} × {cm(matrix.size)} cm
+              </b>{" "}
+              · {matrix.size}×{matrix.size}
+              {matrix.size % PLATE === 0 && ` · ${matrix.size / PLATE}×${matrix.size / PLATE} plates`}
             </span>
             <span>
               <b>{total.toLocaleString()}</b> bricks
@@ -424,10 +431,18 @@ export default function App() {
               </h2>
               <div className="field">
                 <span className="label">Board size</span>
-                <div className="seg">
+                <div className="sizes">
                   {SIZES.map((s) => (
-                    <button key={s} className={opts.size === s ? "on" : ""} onClick={() => set("size", s)}>
-                      {s}×{s}
+                    <button key={s} className={`size-card ${opts.size === s ? "on" : ""}`} onClick={() => set("size", s)}>
+                      <span className="plates" style={{ gridTemplateColumns: `repeat(${s / PLATE}, 1fr)` }} aria-hidden>
+                        {Array.from({ length: (s / PLATE) ** 2 }).map((_, i) => (
+                          <i key={i} />
+                        ))}
+                      </span>
+                      <b>{cm(s)} cm</b>
+                      <span className="muted">
+                        {s / PLATE}×{s / PLATE} plates · {s}×{s}
+                      </span>
                     </button>
                   ))}
                 </div>

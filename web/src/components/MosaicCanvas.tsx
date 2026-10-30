@@ -20,6 +20,7 @@ interface Props {
 }
 
 const BLOCK = 8;
+const PLATE = 24; // studs per baseplate side
 const ZOOMS = [1, 2, 4, 8];
 const MAX_CANVAS = 8192; // device pixels per side; keeps big boards within browser limits
 
@@ -32,6 +33,7 @@ export default function MosaicCanvas(p: Props) {
   const [width, setWidth] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [split, setSplit] = useState(0.5);
+  const [plates, setPlates] = useState(true);
   const [hover, setHover] = useState<{ r: number; c: number } | null>(null);
   const n = p.grid.length;
   const labels = p.view === "numbers";
@@ -134,6 +136,21 @@ export default function MosaicCanvas(p: Props) {
       drawCells(p.view);
     }
 
+    // Baseplate seams, so the board reads as the real set of plates.
+    if (plates && n % PLATE === 0 && n > PLATE && (p.view === "bricks" || p.view === "flat" || p.view === "printed")) {
+      ctx.strokeStyle = "rgba(255,255,255,0.75)";
+      ctx.lineWidth = Math.max(1, dpr);
+      ctx.beginPath();
+      for (let k = PLATE; k < n; k += PLATE) {
+        const q = Math.round(off + k * cell) + 0.5;
+        ctx.moveTo(q, off);
+        ctx.lineTo(q, off + n * cell);
+        ctx.moveTo(off, q);
+        ctx.lineTo(off + n * cell, q);
+      }
+      ctx.stroke();
+    }
+
     if (p.view === "compare" && p.image) {
       const vs = p.image.naturalWidth / p.photoWidth;
       const sx = Math.round(W * split);
@@ -147,7 +164,7 @@ export default function MosaicCanvas(p: Props) {
       ctx.fillStyle = "#fff";
       ctx.fillRect(sx - dpr, 0, 2 * dpr, W);
     }
-  }, [p.grid, p.view, p.image, p.crop, p.photoWidth, p.hexOf, width, split, cell, off, W, n, dpr, labels]);
+  }, [p.grid, p.view, p.image, p.crop, p.photoWidth, p.hexOf, width, split, cell, off, W, n, dpr, labels, plates]);
 
   // Hover highlight lives on its own layer so big boards are not redrawn on every mouse move.
   useEffect(() => {
@@ -244,6 +261,11 @@ export default function MosaicCanvas(p: Props) {
             </span>
           )}
         </div>
+        {n % PLATE === 0 && n > PLATE && (
+          <label className="check plates-toggle">
+            <input type="checkbox" checked={plates} onChange={(e) => setPlates(e.target.checked)} /> Plates
+          </label>
+        )}
         <div className="seg small" role="group" aria-label="Zoom">
           {ZOOMS.map((z) => (
             <button key={z} className={zoom === z ? "on" : ""} onClick={() => zoomTo(z)} title={`Zoom ${z}×`}>
