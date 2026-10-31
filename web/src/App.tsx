@@ -29,8 +29,6 @@ const DEFAULTS: ConvertOptions = {
   contrast: 0,
   saturation: 0,
   filter: "none",
-  palette: "adaptive",
-  colors: 60,
   face_detail: 0.15,
   background: "bilateral",
 };
@@ -61,7 +59,6 @@ export default function App() {
   const [view, setView] = useState<View>("bricks");
   const [tool, setTool] = useState<Tool>("paint");
   const [selected, setSelected] = useState<string | null>(null);
-  const [swatchTab, setSwatchTab] = useState<"mosaic" | "client">("mosaic");
   const [busy, setBusy] = useState<string>("");
   const [error, setError] = useState<string>("");
   const fileInput = useRef<HTMLInputElement>(null);
@@ -151,7 +148,6 @@ export default function App() {
       setFuture([]);
       setGeneratedWith(signature);
       setSelected(null);
-      setSwatchTab(m.palette.name === "client" ? "client" : "mosaic");
     } catch (e) {
       if (id === reqId.current) fail(e);
     } finally {
@@ -275,9 +271,6 @@ export default function App() {
       setBusy("");
     }
   };
-
-  const swatches: PaletteColor[] =
-    swatchTab === "client" ? client : [...(matrix?.palette_full ?? [])].sort((a, b) => (countOf.get(b.code) ?? 0) - (countOf.get(a.code) ?? 0));
 
   const set = <K extends keyof ConvertOptions>(k: K, v: ConvertOptions[K]) => setOpts((o) => ({ ...o, [k]: v }));
 
@@ -450,21 +443,9 @@ export default function App() {
               <div className="field">
                 <span className="label">Colours</span>
                 <div className="seg">
-                  <button className={opts.palette === "adaptive" ? "on" : ""} onClick={() => set("palette", "adaptive")}>
-                    Best match
-                  </button>
-                  <button className={opts.palette === "client" ? "on" : ""} onClick={() => set("palette", "client")}>
-                    Client 40
-                  </button>
+                  <button className="on">Color {client.length || 58}</button>
                 </div>
               </div>
-              {opts.palette === "adaptive" && (
-                <label className="slider">
-                  <span>Max colours</span>
-                  <input type="range" min={16} max={60} value={opts.colors} onChange={(e) => set("colors", +e.target.value)} />
-                  <output>{opts.colors}</output>
-                </label>
-              )}
               <div className="field">
                 <span className="label">Background</span>
                 <div className="seg">
@@ -654,15 +635,10 @@ export default function App() {
             <section>
               <h2>Paint colour</h2>
               <div className="seg small">
-                <button className={swatchTab === "mosaic" ? "on" : ""} onClick={() => setSwatchTab("mosaic")} disabled={matrix.palette.name === "client"}>
-                  This mosaic ({matrix.palette_full.length})
-                </button>
-                <button className={swatchTab === "client" ? "on" : ""} onClick={() => setSwatchTab("client")}>
-                  Client 40
-                </button>
+                <button className="on">Color {client.length || 58}</button>
               </div>
               <div className="swatches">
-                {swatches.map((c) => (
+                {client.map((c) => (
                   <button
                     key={c.code}
                     className={`swatch ${selected === c.code ? "on" : ""}`}

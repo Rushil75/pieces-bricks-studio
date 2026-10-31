@@ -1,4 +1,4 @@
-"""Palettes: the client's fixed 40 colours, or an adaptive palette built per photo."""
+"""Palettes: the client's fixed 58 colours, or an adaptive palette built per photo."""
 import hashlib
 import json
 from dataclasses import dataclass

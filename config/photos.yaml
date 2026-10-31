@@ -2,7 +2,7 @@
 # Jobs are named <photo><version>; output goes to output/<job>_<size>_<variant>/.
 
 defaults:
-  palette: adaptive        # adaptive = best colours for this photo; client = fixed 40 (C01-C40)
+  palette: client          # client = fixed 58 (C01-C58); adaptive = best colours for this photo
   colors: 60               # client's limit: at most 60 colours per mosaic (engine allows up to 256)
   face_weight: 6.0         # face cells count this much more when choosing adaptive colours
   kL: 0.7                  # CIEDE2000 lightness factor (<1 = keep eye/shadow contrast)

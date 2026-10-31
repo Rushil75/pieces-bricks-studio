@@ -184,8 +184,6 @@ class ConvertIn(BaseModel):
     crop: list[int] = Field(min_length=3, max_length=3)
     size: int = Field(48, ge=8, le=256)
     dither: float = Field(0, ge=0, le=100)  # 0 = off; strength in %
-    palette: str = Field("adaptive", pattern="^(adaptive|client)$")
-    colors: int = Field(60, ge=4, le=256)
     face_detail: float = Field(0.15, ge=0, le=2)
     background: str = Field("bilateral", pattern="^(bilateral|meanshift|none)$")
     detail: float = Field(1.0, ge=0, le=5)
@@ -203,7 +201,7 @@ async def convert(file: UploadFile = File(...), options: str = Form(...)):
     path = _save(*(await _read_upload(file)))
     job = body.job if body.job in pipeline.load_config()["jobs"] else None
     base = pipeline.job_settings(job) if job else pipeline.default_settings()
-    s = {**base, "file": path.name, "crop": body.crop, "palette": body.palette, "colors": body.colors,
+    s = {**base, "file": path.name, "crop": body.crop, "palette": "client",
          "grid_face_detail": body.face_detail, "bg_filter": body.background, "detail": body.detail,
          "brightness": body.brightness, "contrast": body.contrast, "saturation_adj": body.saturation,
          "filter": body.filter}
@@ -214,7 +212,7 @@ async def convert(file: UploadFile = File(...), options: str = Form(...)):
     # Target colour of every brick, so the page can re-match bricks when a colour is removed.
     matrix["source"] = ["".join(f"{r:02X}{g:02X}{b:02X}" for r, g, b in row) for row in cells.tolist()]
     matrix["similarity"] = metrics.similarity(matrix, pre["crop"], pre["face_mask"])
-    # The page may repaint cells with any colour of this palette, or the client's 40.
+    # The page may repaint cells with any colour of the client's 58.
     matrix["palette_full"] = palette.entries
     return matrix
 

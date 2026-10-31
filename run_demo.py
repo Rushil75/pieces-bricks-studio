@@ -2,7 +2,7 @@
 
   python run_demo.py --photo p5 --size 48 --dither off
   python run_demo.py --all                       # every job, size and variant + compare sheets
-  python run_demo.py --photo p5 --palette client # the client's fixed 40 colours
+  python run_demo.py --photo p5 --palette client # the client's fixed 58 colours
 """
 import argparse
 import time

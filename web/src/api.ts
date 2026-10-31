@@ -48,8 +48,6 @@ export interface ConvertOptions {
   contrast: number;
   saturation: number;
   filter: Filter;
-  palette: "adaptive" | "client";
-  colors: number;
   face_detail: number;
   background: "bilateral" | "meanshift" | "none";
 }

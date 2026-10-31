@@ -1,6 +1,6 @@
 {
-  "version": "photobricks-40-v1",
-  "source": "PhotoBricks_40_Colors_Easy_Codes.xlsx",
+  "version": "piecesbricks-58-v1",
+  "source": "PIECES_BRICKS_Recommended_58_Colors.xlsx",
   "colors": [
     {"code": "C01", "name": "Black", "hex": "#302E32"},
     {"code": "C02", "name": "White", "hex": "#F7F0E3"},
@@ -41,6 +41,24 @@
     {"code": "C37", "name": "Red Wine", "hex": "#853433"},
     {"code": "C38", "name": "Vanilla", "hex": "#DFC790"},
     {"code": "C39", "name": "Bronze", "hex": "#998769"},
-    {"code": "C40", "name": "Dark Grey", "hex": "#4B4C50"}
+    {"code": "C40", "name": "Dark Grey", "hex": "#4B4C50"},
+    {"code": "C41", "name": "Warm Skin Pink", "hex": "#E18B80"},
+    {"code": "C42", "name": "Medium Skin", "hex": "#F1B993"},
+    {"code": "C43", "name": "Light Coffee", "hex": "#AA8B6E"},
+    {"code": "C44", "name": "Dark Rose Brown", "hex": "#724345"},
+    {"code": "C45", "name": "Medium Grey", "hex": "#868684"},
+    {"code": "C46", "name": "Warm Off-White", "hex": "#C0BBA2"},
+    {"code": "C47", "name": "Powder Blue", "hex": "#BCCFDF"},
+    {"code": "C48", "name": "Grass Green", "hex": "#56852F"},
+    {"code": "C49", "name": "Egg-Yolk Orange", "hex": "#F2962F"},
+    {"code": "C50", "name": "Hot Pink", "hex": "#E14585"},
+    {"code": "C51", "name": "Fair Skin", "hex": "#ECD7D5"},
+    {"code": "C52", "name": "Tomato Red", "hex": "#C2535C"},
+    {"code": "C53", "name": "Dark Olive", "hex": "#445C37"},
+    {"code": "C54", "name": "Deep Purple", "hex": "#673E87"},
+    {"code": "C55", "name": "Dark Azure", "hex": "#0094D0"},
+    {"code": "C56", "name": "Azure", "hex": "#5482BE"},
+    {"code": "C57", "name": "Earth Yellow", "hex": "#B9A16D"},
+    {"code": "C58", "name": "Dusty Pink", "hex": "#CA9FB1"}
   ]
 }

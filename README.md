@@ -6,7 +6,7 @@ Photo in, N×N brick colour matrix out, plus a brick preview, numbered grid and 
 pip install -r requirements.txt
 python run_demo.py --all                          # all jobs in config/photos.yaml, both variants + compare sheets
 python run_demo.py --photo p5 --size 48 --dither off
-python run_demo.py --photo p5 --palette client    # the client's fixed 40 colours (C01–C40)
+python run_demo.py --photo p5 --palette client    # the client's fixed 58 colours (C01–C58)
 python run_demo.py --photo p5 --colors 64         # adaptive palette with 64 colours
 python -m pytest -q tests
 ```
@@ -19,7 +19,7 @@ uvicorn server:app --port 8000                     # then open http://127.0.0.1:
 ```
 
 The page has: upload (or one of the 5 client photos), crop and zoom with a brick-grid overlay and a
-face-width readout in bricks, board size (32×32 up to 256×256), palette mode, number of colours, face detail, background and
+face-width readout in bricks, board size (32×32 up to 256×256), the fixed Color 58 palette, face detail, background and
 dithering. Generate runs the same engine as `run_demo.py`, so results match the offline set exactly.
 The mosaic has Bricks, Flat, Numbered grid and Compare (a split slider against the photo) views. You
 can paint or pick a brick's colour, undo and redo, and see live brick counts with a total check. The
@@ -49,7 +49,7 @@ Fitting the serverless limits:
 
 Adjust: Detail, Face detail, Dither (0-100), Brightness, Contrast, Saturation. Filters: None, B&W,
 Sepia, Warm, Cool, Vivid. Changes regenerate the mosaic automatically (not after painting, so
-edits are kept). Colours: count slider (max 60) and a × per colour in the counts table, which
+edits are kept). Colours: the fixed Color 58 palette, and a × per colour in the counts table, which
 moves its bricks to the nearest colour still in use (CIEDE2000, same as the engine; undoable).
 Defaults are tuned for faithful portraits: Detail 1, everything else neutral.
 - The client photos are not in the repo, so the "try a client photo" buttons only appear where
@@ -65,11 +65,12 @@ are stored too. Tuned for the client's rules (48×48, at most 60 colours): singl
 
 ## Palette modes
 
-- `adaptive` (default): picks the best `colors` (default 60, the client's limit; the engine allows up to 256) for each photo with weighted k-means in
+- `client` (default, and the only mode the web page uses): the 58 colours from `config/palette.json`, codes `C01–C58`.
+  Every brick gets the nearest of these by CIEDE2000.
+- `adaptive` (CLI only, `--palette adaptive`): picks the best `colors` (default 60, the client's limit; the engine allows up to 256) for each photo with weighted k-means in
   LAB. Face cells count more, and 20 % of the colour budget goes to the worst-matched cells, so small
   details such as eyes and lips keep their real colour. Codes are `A01…`, ordered dark to light. Each
   colour also lists its nearest client colour.
-- `client`: the 40 colours from `config/palette.json`, codes `C01–C40`.
 
 ## Pipeline
 
