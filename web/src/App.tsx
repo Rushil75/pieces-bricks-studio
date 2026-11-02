@@ -37,10 +37,12 @@ const DEFAULTS: ConvertOptions = {
   height: 48,
   dither: 0,
   colors: 20, // best N of the 58 for each photo (like the reference product's "auto")
-  detail: 2,
-  brightness: 5,
-  contrast: 15,
+  blend: "off",
+  detail: 1,
+  brightness: 0,
+  contrast: 0,
   saturation: 0,
+  highlights: 0,
   filter: "none",
   face_detail: 0.15,
   background: "bilateral",
@@ -304,7 +306,7 @@ export default function App() {
     if (photo) setCrop((c) => reshapeCrop(userCrop.current ?? c, photo.width, photo.height, width / height));
   };
 
-  type NumKey = "detail" | "face_detail" | "dither" | "brightness" | "contrast" | "saturation";
+  type NumKey = "detail" | "face_detail" | "dither" | "brightness" | "contrast" | "saturation" | "highlights";
   const adjustSlider = (label: string, k: NumKey, min: number, max: number, step: number, def: number) => (
     <label className="slider adj" key={k}>
       <span>{label}</span>
@@ -536,6 +538,26 @@ export default function App() {
                 <p className="hint">Picks the best {Math.min(opts.colors, client.length || 58)} of the {client.length || 58} brick colours for this photo. 20 gives clean, even areas.</p>
               </div>
               <div className="field">
+                <span className="label">Blend colours</span>
+                <div className="seg">
+                  {(
+                    [
+                      ["off", "Off"],
+                      ["background", "Textured areas"],
+                      ["all", "Everywhere"],
+                    ] as const
+                  ).map(([v, label]) => (
+                    <button key={v} className={opts.blend === v ? "on" : ""} onClick={() => set("blend", v)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="hint">
+                  Off: every brick is its own closest colour (cleanest, best for photos). Textured areas: neighbouring bricks mix like
+                  paint where the picture has texture, faces stay clean (paintings, art).
+                </p>
+              </div>
+              <div className="field">
                 <span className="label">Background</span>
                 <div className="seg">
                   {(
@@ -560,6 +582,7 @@ export default function App() {
                 {adjustSlider("Brightness", "brightness", -100, 100, 1, DEFAULTS.brightness)}
                 {adjustSlider("Contrast", "contrast", -100, 100, 1, DEFAULTS.contrast)}
                 {adjustSlider("Saturation", "saturation", -100, 100, 1, 0)}
+                {adjustSlider("Highlights", "highlights", 0, 100, 1, 0)}
               </div>
 
               <div className="field">

@@ -5,15 +5,16 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+import cv2
 import numpy as np
 import yaml
 from PIL import Image
 
 from . import export, metrics, render
-from .palette import build_adaptive_palette, load_client_palette, select_subset
+from .palette import build_adaptive_palette, load_client_palette, rgb_to_lab, select_subset
 from .preprocess import preprocess
 from .quantize import dither as fs_dither
-from .quantize import adjust, downscale, downscale_mask, face_detail, match
+from .quantize import adjust, downscale, downscale_mask, face_detail, match, optimise_view
 
 ROOT = Path(__file__).resolve().parent.parent
 PREPROCESS_KEYS = (
@@ -69,6 +70,9 @@ def convert(path, size, dither, s, return_cells=False):
     """Core conversion for any photo: returns (grid codes, full palette, preprocess result),
     plus the target colour of every brick when return_cells (used to re-match edited palettes)."""
     w, h = dims(size)
+    # Over-saturation guard: on with the Vivid filter (boosted colour would otherwise pick garish
+    # oranges for pastels); off by default because it also nudges ordinary skin duller.
+    s = {**s, "oversat": s.get("oversat", 0.5 if s.get("filter") == "vivid" else 0.0)}
     # Keep at least ~10 source pixels per brick on big boards.
     s = {**s, "work_max": max(int(s.get("work_max", 1600)), max(w, h) * 10)}
     pre = _preprocess_cached(str(path), _freeze(s), round(w / h, 6))
@@ -82,7 +86,8 @@ def convert(path, size, dither, s, return_cells=False):
         n = int(s.get("client_colors") or 0)
         if 0 < n < len(client.entries):
             weights = 1.0 + (s["face_weight"] - 1.0) * np.clip(fmask, 0, 1)
-            palette = select_subset(cells, weights, client, n, s["kL"])
+            palette = select_subset(cells, weights, client, n, s["kL"], kC=s.get("kC", 1.0),
+                                    oversat=s.get("oversat", 0.0))
     else:
         weights = 1.0 + (s["face_weight"] - 1.0) * np.clip(fmask, 0, 1)
         palette = build_adaptive_palette(cells, weights, int(s["colors"]), s["kL"], reference=client,
@@ -95,7 +100,31 @@ def convert(path, size, dither, s, return_cells=False):
         face = s["dither_face_strength"] * strength / max(s["dither_strength"], 1e-6)
         idx = fs_dither(cells, palette, fmask, strength, face, s["dither_clamp"], s["kL"])
     else:
-        idx = match(cells, palette, s["kL"])
+        idx = match(cells, palette, s["kL"], s.get("kC", 1.0), s.get("oversat", 0.0))
+        blend = s.get("blend", "background")
+        if blend != "off":
+            # Viewing-distance optimisation: neighbouring bricks mix as the eye sees them, for
+            # smooth gradients and a natural colour spread - but only where the photo itself has
+            # texture or gradients. Flat areas keep one clean colour (blending them only adds grain)
+            # and faces stay clean unless blend == "all".
+            # Faces are never blended (1e9 = a face brick never trades its own best colour for a mix:
+            # the 58 colours lack muted skin tones, so mixing would add grey bricks to skin).
+            clean, mixed = s.get("blend_face_fidelity", 1e9), s.get("blend_fidelity", 0.3)
+            L = rgb_to_lab(cells)[..., 0]
+            mu = cv2.GaussianBlur(L, (0, 0), 1.0)
+            texture = np.sqrt(np.maximum(cv2.GaussianBlur(L * L, (0, 0), 1.0) - mu * mu, 0))
+            lo, hi = s.get("blend_texture", [1.5, 4.0])
+            t = np.clip((texture - lo) / (hi - lo), 0, 1)
+            if blend != "all":
+                face = cv2.dilate(np.clip(fmask * 2, 0, 1).astype(np.float32), np.ones((3, 3), np.uint8))
+                t = t * (1 - face)
+            flat = s.get("blend_flat_fidelity", 5.0)  # flat areas: one clean colour
+            fid = flat + (mixed - flat) * t
+            if blend != "all":
+                fid = np.where(face > 0.25, clean, fid)
+            idx = optimise_view(cells, palette, idx, s.get("blend_sigma_l", 0.35), s.get("blend_sigma_ab", 1.4),
+                                fid, s["kL"], max_extra=s.get("blend_max_extra", 6.0), kC=s.get("kC", 1.0),
+                                oversat=s.get("oversat", 0.0))
 
     grid = [[palette.codes[i] for i in row] for row in idx.tolist()]
     if return_cells:

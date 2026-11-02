@@ -30,8 +30,17 @@ def lab_to_rgb_u8(lab):
     return np.clip(np.round(lab2rgb(lab) * 255.0), 0, 255).astype(np.uint8)
 
 
-def ciede2000_matrix(lab_points, lab_palette, kL=1.0, chunk=200_000):
+OVERSAT_MARGIN = 22.0  # chroma (C*) a brick may exceed its target by before the penalty starts (skin needs ~20)
+
+
+def ciede2000_matrix(lab_points, lab_palette, kL=1.0, chunk=200_000, kC=1.0, oversat=0.0):
     """Distance from each of M points to each of P palette colours -> (M, P).
+    kL < 1 weights lightness more, kC < 1 weights chroma (colourfulness) more.
+
+    oversat > 0 adds oversat * (excess chroma) when a palette colour is more than
+    OVERSAT_MARGIN more saturated than the target. CIEDE2000 tolerates large chroma surpluses
+    for strong colours, so a pastel gold can match a vivid egg-yolk orange; to the eye an
+    over-saturated brick looks garish while a slightly duller one looks natural.
     Computed in chunks of ~`chunk` pairs so large grids and palettes stay light on memory."""
     m, p = len(lab_points), len(lab_palette)
     out = np.empty((m, p))
@@ -40,7 +49,11 @@ def ciede2000_matrix(lab_points, lab_palette, kL=1.0, chunk=200_000):
         pts = lab_points[i:i + step]
         a = np.broadcast_to(pts[:, None, :], (len(pts), p, 3)).reshape(-1, 3)
         b = np.broadcast_to(lab_palette[None, :, :], (len(pts), p, 3)).reshape(-1, 3)
-        out[i:i + step] = deltaE_ciede2000(a, b, kL=kL).reshape(len(pts), p)
+        out[i:i + step] = deltaE_ciede2000(a, b, kL=kL, kC=kC).reshape(len(pts), p)
+    if oversat:
+        cp = np.hypot(lab_palette[:, 1], lab_palette[:, 2])
+        ct = np.hypot(lab_points[:, 1], lab_points[:, 2])
+        out += oversat * np.maximum(0.0, cp[None, :] - ct[:, None] - OVERSAT_MARGIN)
     return out
 
 
@@ -172,7 +185,7 @@ def build_adaptive_palette(cells_rgb, weights, n_colors, kL=1.0, iters=25, refer
     return Palette("adaptive", version, entries)
 
 
-def select_subset(cells_rgb, weights, palette, n, kL=1.0, swaps=3):
+def select_subset(cells_rgb, weights, palette, n, kL=1.0, swaps=3, kC=1.0, oversat=0.0):
     """Pick the n colours of a fixed palette that best reproduce this photo (like the reference
     product's "auto" colour count), so each brick then chooses among few, well-separated colours:
     flat clean areas instead of near-identical shades flipping brick to brick.
@@ -181,7 +194,7 @@ def select_subset(cells_rgb, weights, palette, n, kL=1.0, swaps=3):
     colour with an unused one whenever that lowers the total weighted CIEDE2000 error."""
     lab = rgb_to_lab(cells_rgb.reshape(-1, 3).astype(np.uint8))
     w = np.asarray(weights, dtype=np.float64).reshape(-1)
-    D = ciede2000_matrix(lab, palette.lab, kL)  # (cells, palette)
+    D = ciede2000_matrix(lab, palette.lab, kL, kC=kC, oversat=oversat)  # (cells, palette)
     n = max(1, min(n, len(palette.entries)))
     chosen, err = [], np.full(len(lab), np.inf)
     for _ in range(n):

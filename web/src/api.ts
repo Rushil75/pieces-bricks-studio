@@ -50,8 +50,10 @@ export interface ConvertOptions {
   brightness: number;
   contrast: number;
   saturation: number;
+  highlights: number; // 0..100, lifts light tones only
   filter: Filter;
   colors: number; // how many of the fixed palette's colours to use (best N for the photo)
+  blend: "off" | "background" | "all"; // viewing-distance colour blending
   face_detail: number;
   background: "bilateral" | "meanshift" | "none";
 }

@@ -1,8 +1,8 @@
 {
-  "version": "piecesbricks-58-v1",
+  "version": "piecesbricks-58-v2",
   "source": "PIECES_BRICKS_Recommended_58_Colors.xlsx",
   "colors": [
-    {"code": "C01", "name": "Black", "hex": "#302E32"},
+    {"code": "C01", "name": "Black", "hex": "#1B1A1C", "hex_sheet": "#302E32", "note": "deeper black (matches real black bricks); the colour sheet lists #302E32"},
     {"code": "C02", "name": "White", "hex": "#F7F0E3"},
     {"code": "C03", "name": "Light Beige", "hex": "#FFD7C3"},
     {"code": "C04", "name": "Beige", "hex": "#EBC0A4"},
