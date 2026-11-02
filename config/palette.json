@@ -1,5 +1,5 @@
 {
-  "version": "piecesbricks-58-v2",
+  "version": "piecesbricks-59-v1",
   "source": "PIECES_BRICKS_Recommended_58_Colors.xlsx",
   "colors": [
     {"code": "C01", "name": "Black", "hex": "#1B1A1C", "hex_sheet": "#302E32", "note": "deeper black (matches real black bricks); the colour sheet lists #302E32"},
@@ -59,6 +59,7 @@
     {"code": "C55", "name": "Dark Azure", "hex": "#0094D0"},
     {"code": "C56", "name": "Azure", "hex": "#5482BE"},
     {"code": "C57", "name": "Earth Yellow", "hex": "#B9A16D"},
-    {"code": "C58", "name": "Dusty Pink", "hex": "#CA9FB1"}
+    {"code": "C58", "name": "Dusty Pink", "hex": "#CA9FB1"},
+    {"code": "C59", "name": "Pure White", "hex": "#F4F4F4"}
   ]
 }

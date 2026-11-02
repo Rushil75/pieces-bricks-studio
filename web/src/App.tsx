@@ -36,7 +36,7 @@ const DEFAULTS: ConvertOptions = {
   width: 48,
   height: 48,
   dither: 0,
-  colors: 20, // best N of the 58 for each photo (like the reference product's "auto")
+  colors: 20, // best N of the client colours for each photo (like the reference product's "auto")
   blend: "off",
   detail: 1,
   brightness: 0,
@@ -524,8 +524,8 @@ export default function App() {
               <div className="field">
                 <span className="label">Colours</span>
                 <label className="slider adj">
-                  <span>{opts.colors >= (client.length || 58) ? "All" : `Best ${opts.colors}`}</span>
-                  <input type="range" min={6} max={client.length || 58} value={opts.colors} onChange={(e) => set("colors", +e.target.value)} />
+                  <span>{opts.colors >= (client.length || 59) ? "All" : `Best ${opts.colors}`}</span>
+                  <input type="range" min={6} max={client.length || 59} value={opts.colors} onChange={(e) => set("colors", +e.target.value)} />
                   <output>
                     {opts.colors}
                     {opts.colors !== DEFAULTS.colors && (
@@ -535,7 +535,7 @@ export default function App() {
                     )}
                   </output>
                 </label>
-                <p className="hint">Picks the best {Math.min(opts.colors, client.length || 58)} of the {client.length || 58} brick colours for this photo. 20 gives clean, even areas.</p>
+                <p className="hint">Picks the best {Math.min(opts.colors, client.length || 59)} of the {client.length || 59} brick colours for this photo. 20 gives clean, even areas.</p>
               </div>
               <div className="field">
                 <span className="label">Blend colours</span>
@@ -747,7 +747,7 @@ export default function App() {
             <section>
               <h2>Paint colour</h2>
               <div className="seg small">
-                <button className="on">Color {client.length || 58}</button>
+                <button className="on">Color {client.length || 59}</button>
               </div>
               <div className="swatches">
                 {client.map((c) => (

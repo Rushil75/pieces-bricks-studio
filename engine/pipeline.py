@@ -108,7 +108,7 @@ def convert(path, size, dither, s, return_cells=False):
             # texture or gradients. Flat areas keep one clean colour (blending them only adds grain)
             # and faces stay clean unless blend == "all".
             # Faces are never blended (1e9 = a face brick never trades its own best colour for a mix:
-            # the 58 colours lack muted skin tones, so mixing would add grey bricks to skin).
+            # the client colours lack muted skin tones, so mixing would add grey bricks to skin).
             clean, mixed = s.get("blend_face_fidelity", 1e9), s.get("blend_fidelity", 0.3)
             L = rgb_to_lab(cells)[..., 0]
             mu = cv2.GaussianBlur(L, (0, 0), 1.0)

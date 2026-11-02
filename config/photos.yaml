@@ -13,7 +13,7 @@ defaults:
   blend_texture: [2.5, 6.0]  # local lightness variation (std, L*) where blending starts / is full
   blend_flat_fidelity: 5.0 # flat areas (no texture in the photo): stay one clean colour
   blend_face_fidelity: 1.0e+9  # faces: never blended, each brick keeps its own best colour
-  client_colors: 20        # use the best 20 of the 58 client colours for each photo (0 = all)
+  client_colors: 20        # use the best 20 of the 59 client colours for each photo (0 = all)
   palette_reserve: 0.1     # share of colours kept for small details (eyes, lips)
   palette_polish: 10       # extra k-means steps after adding the detail colours
   grid_face_detail: 0.15   # brick-scale lightness sharpening inside faces (eyes, brows, mouth)

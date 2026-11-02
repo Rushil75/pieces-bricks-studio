@@ -219,7 +219,7 @@ async def convert(file: UploadFile = File(...), options: str = Form(...)):
     # Target colour of every brick, so the page can re-match bricks when a colour is removed.
     matrix["source"] = ["".join(f"{r:02X}{g:02X}{b:02X}" for r, g, b in row) for row in cells.tolist()]
     matrix["similarity"] = metrics.similarity(matrix, pre["crop"], pre["face_mask"])
-    # The page may repaint cells with any colour of the client's 58.
+    # The page may repaint cells with any colour of the client palette.
     matrix["palette_full"] = palette.entries
     return matrix
 
