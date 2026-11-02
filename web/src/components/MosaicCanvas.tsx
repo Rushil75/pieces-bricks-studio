@@ -64,8 +64,9 @@ export default function MosaicCanvas(p: Props) {
   const off = margin * cell;
   const W = cell * across;
   const H = cell * down;
-  // At 1x fill the panel exactly (bricks rarely divide the width evenly); zoomed, use true size.
-  const cssW = zoom === 1 && width ? width : W / dpr;
+  // Always show the canvas at its true pixel size: stretching it to the panel width blurred every
+  // brick edge and stud. Whole-pixel bricks leave at most a few pixels of margin, centred.
+  const cssW = W / dpr;
   const cssH = (cssW * H) / W;
 
   useEffect(() => {
@@ -236,7 +237,7 @@ export default function MosaicCanvas(p: Props) {
   return (
     <div className="mosaic">
       <div className={`mosaic-wrap ${zoom > 1 ? "zoomed" : ""}`} ref={wrap}>
-        <div className="mosaic-layers" style={{ width: cssW || "100%", height: cssH || "auto" }}>
+        <div className="mosaic-layers" style={{ width: cssW || "100%", height: cssH || "auto", margin: "0 auto" }}>
           <canvas ref={ref} className="mosaic-canvas" style={{ width: cssW, height: cssH }} />
           <canvas
             ref={overlay}

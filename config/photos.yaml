@@ -5,11 +5,14 @@ defaults:
   palette: client          # client = fixed 58 (C01-C58); adaptive = best colours for this photo
   colors: 60               # client's limit: at most 60 colours per mosaic (engine allows up to 256)
   face_weight: 6.0         # face cells count this much more when choosing adaptive colours
-  kL: 0.7                  # CIEDE2000 lightness factor (<1 = keep eye/shadow contrast)
+  kL: 1.0                  # CIEDE2000 lightness factor (1.0 = balanced hue/lightness: warmer, truer skin with the 58)
+  client_colors: 20        # use the best 20 of the 58 client colours for each photo (0 = all)
   palette_reserve: 0.1     # share of colours kept for small details (eyes, lips)
   palette_polish: 10       # extra k-means steps after adding the detail colours
   grid_face_detail: 0.15   # brick-scale lightness sharpening inside faces (eyes, brows, mouth)
-  detail: 1.0              # brick-scale lightness sharpening over the whole picture (page slider 0-5)
+  detail: 2.0              # brick-scale lightness sharpening over the whole picture (page slider 0-5)
+  contrast: 15             # page slider -100..100; with brightness 5, the reference product's crisp look
+  brightness: 5
   grid_detail_sigma: 0.8   # in bricks
   face_score: 0.8
   crop: auto               # or [x, y, size] in original pixels

@@ -10,7 +10,7 @@ import yaml
 from PIL import Image
 
 from . import export, metrics, render
-from .palette import build_adaptive_palette, load_client_palette
+from .palette import build_adaptive_palette, load_client_palette, select_subset
 from .preprocess import preprocess
 from .quantize import dither as fs_dither
 from .quantize import adjust, downscale, downscale_mask, face_detail, match
@@ -79,6 +79,10 @@ def convert(path, size, dither, s, return_cells=False):
     client = load_client_palette()
     if s["palette"] == "client":
         palette = client
+        n = int(s.get("client_colors") or 0)
+        if 0 < n < len(client.entries):
+            weights = 1.0 + (s["face_weight"] - 1.0) * np.clip(fmask, 0, 1)
+            palette = select_subset(cells, weights, client, n, s["kL"])
     else:
         weights = 1.0 + (s["face_weight"] - 1.0) * np.clip(fmask, 0, 1)
         palette = build_adaptive_palette(cells, weights, int(s["colors"]), s["kL"], reference=client,

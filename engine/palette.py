@@ -170,3 +170,43 @@ def build_adaptive_palette(cells_rgb, weights, n_colors, kL=1.0, iters=25, refer
         entries.append({"code": code, "name": name, "hex": rgb_to_hex(c)})
     version = "adaptive-" + hashlib.sha1("".join(e["hex"] for e in entries).encode()).hexdigest()[:10]
     return Palette("adaptive", version, entries)
+
+
+def select_subset(cells_rgb, weights, palette, n, kL=1.0, swaps=3):
+    """Pick the n colours of a fixed palette that best reproduce this photo (like the reference
+    product's "auto" colour count), so each brick then chooses among few, well-separated colours:
+    flat clean areas instead of near-identical shades flipping brick to brick.
+
+    Weighted greedy selection (face bricks count more), then swap passes that replace a chosen
+    colour with an unused one whenever that lowers the total weighted CIEDE2000 error."""
+    lab = rgb_to_lab(cells_rgb.reshape(-1, 3).astype(np.uint8))
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
+    D = ciede2000_matrix(lab, palette.lab, kL)  # (cells, palette)
+    n = max(1, min(n, len(palette.entries)))
+    chosen, err = [], np.full(len(lab), np.inf)
+    for _ in range(n):
+        gain = ((err[:, None] - np.minimum(err[:, None], D)) * w[:, None])
+        gain = np.where(np.isinf(gain), 1e12, gain).sum(0)
+        gain[chosen] = -1
+        j = int(np.argmax(gain))
+        chosen.append(j)
+        err = np.minimum(err, D[:, j])
+
+    def cost(sel):
+        return float((D[:, sel].min(1) * w).sum())
+
+    best = cost(chosen)
+    for _ in range(swaps):
+        improved = False
+        for i in range(n):
+            for j in range(len(palette.entries)):
+                if j in chosen:
+                    continue
+                trial = chosen[:i] + [j] + chosen[i + 1:]
+                c = cost(trial)
+                if c < best - 1e-9:
+                    chosen, best, improved = trial, c, True
+        if not improved:
+            break
+    chosen.sort()
+    return Palette(palette.name, palette.version, [palette.entries[i] for i in chosen])

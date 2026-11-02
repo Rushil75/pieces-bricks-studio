@@ -36,9 +36,10 @@ const DEFAULTS: ConvertOptions = {
   width: 48,
   height: 48,
   dither: 0,
-  detail: 1,
-  brightness: 0,
-  contrast: 0,
+  colors: 20, // best N of the 58 for each photo (like the reference product's "auto")
+  detail: 2,
+  brightness: 5,
+  contrast: 15,
   saturation: 0,
   filter: "none",
   face_detail: 0.15,
@@ -520,9 +521,19 @@ export default function App() {
               </div>
               <div className="field">
                 <span className="label">Colours</span>
-                <div className="seg">
-                  <button className="on">Color {client.length || 58}</button>
-                </div>
+                <label className="slider adj">
+                  <span>{opts.colors >= (client.length || 58) ? "All" : `Best ${opts.colors}`}</span>
+                  <input type="range" min={6} max={client.length || 58} value={opts.colors} onChange={(e) => set("colors", +e.target.value)} />
+                  <output>
+                    {opts.colors}
+                    {opts.colors !== DEFAULTS.colors && (
+                      <button className="reset" title="Auto (20)" onClick={(e) => (e.preventDefault(), set("colors", DEFAULTS.colors))}>
+                        ↺
+                      </button>
+                    )}
+                  </output>
+                </label>
+                <p className="hint">Picks the best {Math.min(opts.colors, client.length || 58)} of the {client.length || 58} brick colours for this photo. 20 gives clean, even areas.</p>
               </div>
               <div className="field">
                 <span className="label">Background</span>
@@ -546,8 +557,8 @@ export default function App() {
                 {adjustSlider("Detail", "detail", 0, 5, 0.5, DEFAULTS.detail)}
                 {adjustSlider("Face detail", "face_detail", 0, 1.5, 0.05, DEFAULTS.face_detail)}
                 {adjustSlider("Dither", "dither", 0, 100, 5, 0)}
-                {adjustSlider("Brightness", "brightness", -100, 100, 1, 0)}
-                {adjustSlider("Contrast", "contrast", -100, 100, 1, 0)}
+                {adjustSlider("Brightness", "brightness", -100, 100, 1, DEFAULTS.brightness)}
+                {adjustSlider("Contrast", "contrast", -100, 100, 1, DEFAULTS.contrast)}
                 {adjustSlider("Saturation", "saturation", -100, 100, 1, 0)}
               </div>
 

@@ -188,11 +188,12 @@ class ConvertIn(BaseModel):
     dither: float = Field(0, ge=0, le=100)  # 0 = off; strength in %
     face_detail: float = Field(0.15, ge=0, le=2)
     background: str = Field("bilateral", pattern="^(bilateral|meanshift|none)$")
-    detail: float = Field(1.0, ge=0, le=5)
-    brightness: int = Field(0, ge=-100, le=100)
-    contrast: int = Field(0, ge=-100, le=100)
+    detail: float = Field(2.0, ge=0, le=5)
+    brightness: int = Field(5, ge=-100, le=100)
+    contrast: int = Field(15, ge=-100, le=100)
     saturation: int = Field(0, ge=-100, le=100)
     filter: str = Field("none", pattern="^(none|bw|sepia|warm|cool|vivid)$")
+    colors: int = Field(20, ge=2, le=256)  # best N colours of the client palette for this photo
 
 
 @app.post("/api/convert")
@@ -206,7 +207,7 @@ async def convert(file: UploadFile = File(...), options: str = Form(...)):
     s = {**base, "file": path.name, "crop": body.crop, "palette": "client",
          "grid_face_detail": body.face_detail, "bg_filter": body.background, "detail": body.detail,
          "brightness": body.brightness, "contrast": body.contrast, "saturation_adj": body.saturation,
-         "filter": body.filter}
+         "filter": body.filter, "client_colors": body.colors}
     dither = body.dither / 100 if body.dither else False
     board = (body.width, body.height) if body.width and body.height else body.size
     grid, palette, pre, cells = pipeline.convert(path, board, dither, s, return_cells=True)

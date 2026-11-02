@@ -51,6 +51,7 @@ export interface ConvertOptions {
   contrast: number;
   saturation: number;
   filter: Filter;
+  colors: number; // how many of the fixed palette's colours to use (best N for the photo)
   face_detail: number;
   background: "bilateral" | "meanshift" | "none";
 }
