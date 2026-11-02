@@ -1,4 +1,4 @@
-export type Crop = [number, number, number]; // x, y, size in original pixels
+export type Crop = [number, number, number, number]; // x, y, width, height in original pixels
 
 export interface Photo {
   id: string;
@@ -17,7 +17,9 @@ export interface PaletteColor {
 }
 
 export interface Matrix {
-  size: number;
+  size: number | string; // N for square boards, "WxH" for rectangles
+  width: number;
+  height: number;
   palette_version: string;
   palette: { name: string; colors: PaletteColor[] };
   palette_full: PaletteColor[];
@@ -41,7 +43,8 @@ export interface Similarity {
 export type Filter = "none" | "bw" | "sepia" | "warm" | "cool" | "vivid";
 
 export interface ConvertOptions {
-  size: number;
+  width: number; // board, in bricks (studs)
+  height: number;
   dither: number; // 0 = off, else strength in %
   detail: number;
   brightness: number;

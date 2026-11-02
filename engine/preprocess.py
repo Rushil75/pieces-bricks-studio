@@ -33,50 +33,76 @@ def detect_faces(rgb, score=0.8, min_face=0.02, max_side=1280):
     return sorted(out, key=lambda b: -b[2] * b[3])
 
 
-def _clamp_square(cx, cy, side, w, h):
-    side = int(round(min(side, w, h)))
-    x = int(round(min(max(cx - side / 2, 0), w - side)))
-    y = int(round(min(max(cy - side / 2, 0), h - side)))
-    return x, y, side
+def _clamp_box(cx, cy, cw, ch, w, h):
+    """Crop box of size cw x ch centred near (cx, cy), shrunk (keeping its shape) to fit the photo."""
+    k = min(1.0, w / cw, h / ch)
+    cw, ch = int(round(cw * k)), int(round(ch * k))
+    x = int(round(min(max(cx - cw / 2, 0), w - cw)))
+    y = int(round(min(max(cy - ch / 2, 0), h - ch)))
+    return x, y, cw, ch
 
 
-def plan_crop(shape, faces, s):
-    """Step 3: square crop (x, y, size). Manual crop wins; else frame the detected faces."""
+def _box_for(side, aspect):
+    """Board-shaped box whose short side is `side`, so a face gets the same number of bricks
+    across the board's short side whatever the shape (aspect = width / height)."""
+    return (side * aspect, side) if aspect >= 1 else (side, side / aspect)
+
+
+def plan_crop(shape, faces, s, aspect=1.0):
+    """Step 3: crop (x, y, width, height) with the board's shape. Manual crop wins ([x, y, size]
+    for a square, or [x, y, width, height]); else frame the detected faces."""
     h, w = shape[:2]
-    if s.get("crop") not in (None, "auto"):
-        x, y, side = s["crop"]
-        return _clamp_square(x + side / 2, y + side / 2, side, w, h)
+    crop = s.get("crop")
+    if crop not in (None, "auto"):
+        if len(crop) == 3:
+            x, y, side = crop
+            cw, ch = _box_for(side, aspect)
+            return _clamp_box(x + side / 2, y + side / 2, cw, ch, w, h)
+        x, y, cw, ch = crop
+        # Keep the box's centre and width; its height follows the board's shape exactly.
+        return _clamp_box(x + cw / 2, y + ch / 2, cw, cw / aspect, w, h)
     if not faces:
-        return _clamp_square(w / 2, h / 2, min(w, h), w, h)
+        cw, ch = (w, w / aspect) if w / h <= aspect else (h * aspect, h)
+        return _clamp_box(w / 2, h / 2, cw, ch, w, h)
     if len(faces) == 1 or s.get("crop_mode") == "single":
         x, y, fw, fh, _ = faces[0]
         side = max(fw, fh) * s["face_scale"]
-        return _clamp_square(x + fw / 2, y + fh / 2 + side * s["shift_down"], side, w, h)
+        cw, ch = _box_for(side, aspect)
+        return _clamp_box(x + fw / 2, y + fh / 2 + side * s["shift_down"], cw, ch, w, h)
     x0 = min(f[0] for f in faces)
     y0 = min(f[1] for f in faces)
     x1 = max(f[0] + f[2] for f in faces)
     y1 = max(f[1] + f[3] for f in faces)
     fsize = np.median([max(f[2], f[3]) for f in faces])
-    side = max(x1 - x0, y1 - y0) + fsize * s["group_pad"]
-    return _clamp_square((x0 + x1) / 2, (y0 + y1) / 2 + side * s["shift_down"], side, w, h)
+    pad = fsize * s["group_pad"]
+    # Fit all faces plus padding inside a board-shaped box.
+    cw, ch = x1 - x0 + pad, y1 - y0 + pad
+    cw, ch = (cw, cw / aspect) if cw / ch >= aspect else (ch * aspect, ch)
+    return _clamp_box((x0 + x1) / 2, (y0 + y1) / 2 + min(cw, ch) * s["shift_down"], cw, ch, w, h)
+
+
+def _resize_long(rgb, long_side, interp):
+    h, w = rgb.shape[:2]
+    f = long_side / max(h, w)
+    return cv2.resize(rgb, (max(1, round(w * f)), max(1, round(h * f))), interpolation=interp), f
 
 
 def upscale(rgb, min_width, max_width=1600):
     """Step 4: FSRCNN x4 super-resolution when the crop is small (fallback: Lanczos).
-    The result is capped at max_width: plenty of detail per brick, far less memory."""
-    if rgb.shape[1] > max_width:
-        f = max_width / rgb.shape[1]
-        return cv2.resize(rgb, (max_width, max_width), interpolation=cv2.INTER_AREA), f
-    if rgb.shape[1] >= min_width:
+    Sizes refer to the long side; the result is capped at max_width: plenty of detail per
+    brick, far less memory."""
+    long_side = max(rgb.shape[:2])
+    if long_side > max_width:
+        return _resize_long(rgb, max_width, cv2.INTER_AREA)
+    if long_side >= min_width:
         return rgb, 1.0
-    if rgb.shape[1] * 4 > max_width * 1.25:
+    if long_side * 4 > max_width * 1.25:
         # Modest upscale needed: Lanczos is enough and avoids FSRCNN's large feature maps.
-        f = min_width / rgb.shape[1]
-        return cv2.resize(rgb, (min_width, min_width), interpolation=cv2.INTER_LANCZOS4), f
+        return _resize_long(rgb, min_width, cv2.INTER_LANCZOS4)
     out, factor = _super_res(rgb)
-    if out.shape[1] > max_width:
-        out = cv2.resize(out, (max_width, max_width), interpolation=cv2.INTER_AREA)
-        factor = max_width / rgb.shape[1]
+    if max(out.shape[:2]) > max_width:
+        out, f = _resize_long(out, max_width, cv2.INTER_AREA)
+        factor *= f
     return out, factor
 
 
@@ -178,17 +204,18 @@ def simplify_background(rgb, pmask, s):
     return cv2.cvtColor(out.astype(np.uint8), cv2.COLOR_BGR2RGB)
 
 
-def preprocess(path, s):
-    """Run steps 1-6. Returns the untouched crop, the processed crop and its masks."""
+def preprocess(path, s, aspect=1.0):
+    """Run steps 1-6 for a board of shape aspect = width / height. Returns the untouched crop,
+    the processed crop and its masks."""
     rgb = load_image(path)
     faces = detect_faces(rgb, s["face_score"])
-    x, y, side = plan_crop(rgb.shape, faces, s)
-    crop = rgb[y:y + side, x:x + side].copy()
+    x, y, cw, ch = plan_crop(rgb.shape, faces, s, aspect)
+    crop = rgb[y:y + ch, x:x + cw].copy()
 
     crop_faces = []
     for fx, fy, fw, fh, sc in faces:
         cx, cy = fx + fw / 2 - x, fy + fh / 2 - y
-        if 0 <= cx < side and 0 <= cy < side:
+        if 0 <= cx < cw and 0 <= cy < ch:
             crop_faces.append((fx - x, fy - y, fw, fh, sc))
 
     work, factor = upscale(crop, s["upscale_min"], s.get("work_max", 1600))
@@ -200,7 +227,7 @@ def preprocess(path, s):
     work = simplify_background(work, pmask, s)
     return {
         "crop": crop,
-        "crop_box": [int(x), int(y), int(side)],
+        "crop_box": [int(x), int(y), int(cw), int(ch)],
         "faces": [[round(v, 1) for v in f[:4]] for f in crop_faces],
         "image": work,
         "face_mask": fmask,

@@ -33,7 +33,7 @@ def test_every_cell_is_a_palette_code(result):
     assert cells <= allowed
     if m["palette"]["name"] == "client":
         assert cells <= set(load_client_palette().codes)
-        assert all(re.fullmatch(r"C(0[1-9]|[1-3]\d|40)", c) for c in cells)
+        assert all(re.fullmatch(r"C\d{2}", c) for c in cells)  # C01..C58 (palette.json)
     assert all(re.fullmatch(r"#[0-9A-F]{6}", e["hex"]) for e in m["palette"]["colors"])
 
 
@@ -70,3 +70,24 @@ def test_outputs_are_generated_from_matrix_json(result, tmp_path):
     assert rows[0]["Code"] == new_code and int(rows[0]["Quantity"]) == SIZE * SIZE
     for name in ("preview.png", "flat.png", "grid.png"):
         assert (tmp_path / name).read_bytes() != (d / name).read_bytes()
+
+
+@pytest.mark.parametrize("board", [(64, 48), (48, 64)])
+def test_rectangular_board(board, tmp_path):
+    """Landscape and portrait boards: grid is height rows of width bricks, counts add up,
+    and every output is rendered at the board's shape."""
+    photo = pipeline.ROOT / "input" / pipeline.job_settings("p5")["file"]
+    if not photo.exists():
+        pytest.skip("client photo not present")
+    w, h = board
+    r = pipeline.run("p5", board, False, None, tmp_path)
+    m = r["matrix"]
+    assert (m["width"], m["height"], m["size"]) == (w, h, f"{w}x{h}")
+    assert len(m["grid"]) == h and all(len(row) == w for row in m["grid"])
+    cx, cy, cw, ch = m["settings"]["crop_resolved"]
+    assert abs(cw / ch - w / h) < 0.02  # crop has the board's shape, so nothing is stretched
+    with open(r["dir"] / "counts.csv") as f:
+        assert int(list(csv.DictReader(f))[-1]["Quantity"]) == w * h
+    from PIL import Image
+    pw, ph = Image.open(r["dir"] / "preview.png").size
+    assert pw * h == ph * w

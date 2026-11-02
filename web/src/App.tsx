@@ -2,15 +2,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "./api";
 import type { ConvertOptions, Crop, Filter, Matrix, PaletteColor, Photo } from "./api";
 import { hexToLab, nearest } from "./colour";
-import CropEditor, { clampCrop } from "./components/CropEditor";
+import CropEditor, { reshapeCrop } from "./components/CropEditor";
 import MosaicCanvas, { type Tool, type View } from "./components/MosaicCanvas";
 import { PRINT_DEFAULTS, renderPrintSheet, sheetInfo, type PrintLayout } from "./print";
 
 const STUD_MM = 8;
-const PLATE = 24; // studs per side of one baseplate
-// Boards are whole baseplates, like the reference product: 2x2 plates = 48x48 studs = 38.4 cm.
-const SIZES = [2, 3, 4, 5, 6, 7, 8].map((p) => p * PLATE);
+// Client spec: 1 baseplate = 16 x 16 studs = 12.8 cm; frames need +2 mm on each side length.
+const PLATE = 16;
+const FRAME_MM = 2;
+type Shape = "square" | "landscape" | "portrait" | "custom";
+const SQUARE: [number, number][] = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((p) => [p, p]);
+const LANDSCAPE: [number, number][] = [[4, 3], [5, 3], [5, 4], [6, 4], [8, 4], [8, 6], [10, 6], [12, 6], [12, 8]];
+const BOARDS: Record<Exclude<Shape, "custom">, [number, number][]> = {
+  square: SQUARE,
+  landscape: LANDSCAPE,
+  portrait: LANDSCAPE.map(([w, h]) => [h, w]),
+};
+const MAX_PLATES = 16; // 256 studs, the engine's limit
 const cm = (studs: number) => ((studs * STUD_MM) / 10).toFixed(1);
+const frameCm = (studs: number) => ((studs * STUD_MM + FRAME_MM) / 10).toFixed(1);
+const dimsOf = (m: Matrix): [number, number] => [m.grid[0].length, m.grid.length];
 const FILTERS: [Filter, string][] = [
   ["none", "None"],
   ["bw", "B&W"],
@@ -22,7 +33,8 @@ const FILTERS: [Filter, string][] = [
 const HISTORY = 100;
 
 const DEFAULTS: ConvertOptions = {
-  size: 48,
+  width: 48,
+  height: 48,
   dither: 0,
   detail: 1,
   brightness: 0,
@@ -49,8 +61,10 @@ export default function App() {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
   const [job, setJob] = useState<string | undefined>(undefined);
-  const [crop, setCrop] = useState<Crop>([0, 0, 1]);
+  const [crop, setCrop] = useState<Crop>([0, 0, 1, 1]);
   const [opts, setOpts] = useState<ConvertOptions>(DEFAULTS);
+  const [shape, setShape] = useState<Shape>("square");
+  const userCrop = useRef<Crop | null>(null); // last crop set by the user (or the auto crop)
   const [matrix, setMatrix] = useState<Matrix | null>(null);
   const [grid, setGrid] = useState<string[][] | null>(null);
   const [past, setPast] = useState<string[][][]>([]);
@@ -114,7 +128,8 @@ export default function App() {
       setImage(img);
       setPhotoBlob(blob);
       setJob(src.job);
-      setCrop(clampCrop(ph.auto_crop, ph.width, ph.height));
+      userCrop.current = ph.auto_crop;
+      setCrop(reshapeCrop(ph.auto_crop, ph.width, ph.height, opts.width / opts.height));
       setMatrix(null);
       setGrid(null);
       setPast([]);
@@ -138,7 +153,7 @@ export default function App() {
     const id = ++reqId.current;
     setError("");
     if (auto) setUpdating(true);
-    else setBusy(`Converting to ${opts.size}×${opts.size} bricks…`);
+    else setBusy(`Converting to ${opts.width}×${opts.height} bricks…`);
     try {
       const m = await api.convert(photoBlob, crop, opts, job);
       if (id !== reqId.current) return;
@@ -248,10 +263,11 @@ export default function App() {
     if (!matrix || !image || !photo) return;
     setBusy("Building the print file…");
     try {
-      const o = { ...print, tiles: matrix.size };
+      const [cols, rows] = dimsOf(matrix);
+      const o = { ...print, cols, rows };
       const blob = await renderPrintSheet(image, photo.width, (matrix.settings.crop_resolved as Crop) ?? crop, o);
       const { dpi } = sheetInfo(o);
-      download(blob, `print_${matrix.size}x${matrix.size}_${o.layout}_${o.tileMm}mm_${dpi}dpi.png`);
+      download(blob, `print_${cols}x${rows}_${o.layout}_${o.tileMm}mm_${dpi}dpi.png`);
     } catch (e) {
       fail(e);
     } finally {
@@ -264,7 +280,7 @@ export default function App() {
     setBusy("Building download pack…");
     try {
       const blob = await api.exportPack({ ...matrix, grid, edited: edits > 0 });
-      download(blob, `mosaic_${matrix.size}x${matrix.size}${edits ? "_edited" : ""}.zip`);
+      download(blob, `mosaic_${dimsOf(matrix).join("x")}${edits ? "_edited" : ""}.zip`);
     } catch (e) {
       fail(e);
     } finally {
@@ -273,6 +289,19 @@ export default function App() {
   };
 
   const set = <K extends keyof ConvertOptions>(k: K, v: ConvertOptions[K]) => setOpts((o) => ({ ...o, [k]: v }));
+
+  // Dimensions of the generated mosaic (may differ from the settings until it regenerates).
+  const [mw, mh] = matrix ? dimsOf(matrix) : [opts.width, opts.height];
+
+  /** Board in plates; the crop follows the board's shape (same centre, short side kept). */
+  const setBoard = (platesW: number, platesH: number) => {
+    const width = platesW * PLATE;
+    const height = platesH * PLATE;
+    setOpts((o) => ({ ...o, width, height }));
+    // Reshape from the crop the user last chose, not the current one: a tall board may have to
+    // shrink the crop to fit the photo, and that must not carry over to the next shape.
+    if (photo) setCrop((c) => reshapeCrop(userCrop.current ?? c, photo.width, photo.height, width / height));
+  };
 
   type NumKey = "detail" | "face_detail" | "dither" | "brightness" | "contrast" | "saturation";
   const adjustSlider = (label: string, k: NumKey, min: number, max: number, step: number, def: number) => (
@@ -309,10 +338,10 @@ export default function App() {
           <div className="top-stats">
             <span>
               <b>
-                {cm(matrix.size)} × {cm(matrix.size)} cm
+                {cm(mw)} × {cm(mh)} cm
               </b>{" "}
-              · {matrix.size}×{matrix.size}
-              {matrix.size % PLATE === 0 && ` · ${matrix.size / PLATE}×${matrix.size / PLATE} plates`}
+              · {mw}×{mh}
+              {mw % PLATE === 0 && mh % PLATE === 0 && ` · ${mw / PLATE}×${mh / PLATE} plates`}
             </span>
             <span>
               <b>{total.toLocaleString()}</b> bricks
@@ -413,7 +442,17 @@ export default function App() {
               <h2>
                 <span className="step">2</span> Crop &amp; zoom
               </h2>
-              <CropEditor photo={photo} image={image} crop={crop} gridSize={opts.size} onChange={setCrop} />
+              <CropEditor
+                photo={photo}
+                image={image}
+                crop={crop}
+                cols={opts.width}
+                rows={opts.height}
+                onChange={(c) => {
+                  userCrop.current = c;
+                  setCrop(c);
+                }}
+              />
             </section>
           )}
 
@@ -424,21 +463,60 @@ export default function App() {
               </h2>
               <div className="field">
                 <span className="label">Board size</span>
-                <div className="sizes">
-                  {SIZES.map((s) => (
-                    <button key={s} className={`size-card ${opts.size === s ? "on" : ""}`} onClick={() => set("size", s)}>
-                      <span className="plates" style={{ gridTemplateColumns: `repeat(${s / PLATE}, 1fr)` }} aria-hidden>
-                        {Array.from({ length: (s / PLATE) ** 2 }).map((_, i) => (
-                          <i key={i} />
-                        ))}
-                      </span>
-                      <b>{cm(s)} cm</b>
-                      <span className="muted">
-                        {s / PLATE}×{s / PLATE} plates · {s}×{s}
-                      </span>
+                <div className="seg small shape-tabs">
+                  {(
+                    [
+                      ["square", "Square"],
+                      ["landscape", "Landscape"],
+                      ["portrait", "Portrait"],
+                      ["custom", "Custom"],
+                    ] as [Shape, string][]
+                  ).map(([v, label]) => (
+                    <button key={v} className={shape === v ? "on" : ""} onClick={() => setShape(v)}>
+                      {label}
                     </button>
                   ))}
                 </div>
+                {shape === "custom" ? (
+                  <div className="custom-board">
+                    <label>
+                      Plates wide
+                      <input type="number" min={1} max={MAX_PLATES} value={opts.width / PLATE}
+                        onChange={(e) => setBoard(Math.min(MAX_PLATES, Math.max(1, Math.round(+e.target.value) || 1)), opts.height / PLATE)} />
+                    </label>
+                    <span>×</span>
+                    <label>
+                      Plates high
+                      <input type="number" min={1} max={MAX_PLATES} value={opts.height / PLATE}
+                        onChange={(e) => setBoard(opts.width / PLATE, Math.min(MAX_PLATES, Math.max(1, Math.round(+e.target.value) || 1)))} />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="sizes">
+                    {BOARDS[shape].map(([pw, ph]) => {
+                      const on = opts.width === pw * PLATE && opts.height === ph * PLATE;
+                      return (
+                        <button key={`${pw}x${ph}`} className={`size-card ${on ? "on" : ""}`} onClick={() => setBoard(pw, ph)}>
+                          <span className="plates" style={{ gridTemplateColumns: `repeat(${pw}, 1fr)`, aspectRatio: `${pw} / ${ph}` }} aria-hidden>
+                            {Array.from({ length: pw * ph }).map((_, i) => (
+                              <i key={i} />
+                            ))}
+                          </span>
+                          <b>
+                            {cm(pw * PLATE)} × {cm(ph * PLATE)}
+                          </b>
+                          <span className="muted">
+                            {pw}×{ph} plates · {pw * PLATE}×{ph * PLATE}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="hint">
+                  {opts.width / PLATE}×{opts.height / PLATE} plates of 16×16 studs = {cm(opts.width)} × {cm(opts.height)} cm ·{" "}
+                  {(opts.width * opts.height).toLocaleString()} bricks · frame opening {frameCm(opts.width)} × {frameCm(opts.height)} cm
+                </p>
               </div>
               <div className="field">
                 <span className="label">Colours</span>
@@ -625,7 +703,7 @@ export default function App() {
                   )}
                 </dl>
                 <p className="hint">
-                  Measured against the photo averaged under each brick, the most detail a {matrix.size}×{matrix.size} board can hold.
+                  Measured against the photo averaged under each brick, the most detail a {mw}×{mh} board can hold.
                   {edits > 0 && " Score is for the generated mosaic, before your edits."}
                   {(opts.filter !== "none" || opts.brightness || opts.contrast || opts.saturation || opts.detail > DEFAULTS.detail) &&
                     " Filters and adjustments change the picture on purpose, so they lower this score."}
@@ -697,9 +775,9 @@ export default function App() {
                     </button>
                   </div>
                 ))}
-                <div className={`tr total ${total === matrix.size * matrix.size ? "ok" : "bad"}`}>
+                <div className={`tr total ${total === mw * mh ? "ok" : "bad"}`}>
                   <span>Total</span>
-                  <span>{total === matrix.size * matrix.size ? "matches the board ✓" : "does not match the board"}</span>
+                  <span>{total === mw * mh ? "matches the board ✓" : "does not match the board"}</span>
                   <span className="num">{total.toLocaleString()}</span>
                   <span />
                 </div>
@@ -718,7 +796,7 @@ export default function App() {
                 Printed tiles <span className="tag">optional</span>
               </h2>
               <p className="hint intro">
-                Instead of coloured bricks, UV-print the photo itself onto {(matrix.size * matrix.size).toLocaleString()} blank flat 1×1 tiles.
+                Instead of coloured bricks, UV-print the photo itself onto {(mw * mh).toLocaleString()} blank flat 1×1 tiles.
                 See it in the <button className="link" onClick={() => setView("printed")}>Printed tiles</button> view.
               </p>
               <div className="field">
@@ -767,10 +845,11 @@ export default function App() {
                 )}
               </div>
               {(() => {
-                const info = sheetInfo({ ...print, tiles: matrix.size });
+                const info = sheetInfo({ ...print, cols: mw, rows: mh });
                 return (
                   <p className="hint">
-                    Sheet {(info.sideMm / 10).toFixed(1)} × {(info.sideMm / 10).toFixed(1)} cm · {info.sidePx.toLocaleString()} px at {info.dpi} dpi
+                    Sheet {(info.widthMm / 10).toFixed(1)} × {(info.heightMm / 10).toFixed(1)} cm · {info.widthPx.toLocaleString()} ×{" "}
+                    {info.heightPx.toLocaleString()} px at {info.dpi} dpi
                     {info.dpi < print.dpi && " (lowered: the browser can't make a bigger image)"}.
                     {print.layout === "jig"
                       ? " Tiles are spaced as they sit in a printer jig; the photo runs a little past each edge (bleed)."
@@ -781,7 +860,7 @@ export default function App() {
               <button className="btn block" onClick={downloadPrint} disabled={!!busy || !image}>
                 Download print file (.png)
               </button>
-              <p className="hint">Made from the full-resolution photo, not the brick colours. Pieces needed: {(matrix.size * matrix.size).toLocaleString()} white flat 1×1 tiles.</p>
+              <p className="hint">Made from the full-resolution photo, not the brick colours. Pieces needed: {(mw * mh).toLocaleString()} white flat 1×1 tiles.</p>
             </section>
           </aside>
         )}

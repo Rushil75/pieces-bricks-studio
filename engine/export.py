@@ -6,11 +6,19 @@ from collections import Counter
 from pathlib import Path
 
 
+def dims(matrix):
+    """(width, height) in bricks of a matrix dict (rows are the grid's outer list)."""
+    return len(matrix["grid"][0]), len(matrix["grid"])
+
+
 def build_matrix(grid_codes, palette, settings, extra=None):
-    n = len(grid_codes)
+    h, w = len(grid_codes), len(grid_codes[0])
     used = set(c for row in grid_codes for c in row)
     return {
-        "size": n,
+        # Square boards keep the brief's numeric "size"; rectangles read e.g. "64x48".
+        "size": w if w == h else f"{w}x{h}",
+        "width": w,
+        "height": h,
         "palette_version": palette.version,
         "palette": {
             "name": palette.name,

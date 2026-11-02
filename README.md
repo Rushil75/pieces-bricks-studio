@@ -6,6 +6,7 @@ Photo in, N×N brick colour matrix out, plus a brick preview, numbered grid and 
 pip install -r requirements.txt
 python run_demo.py --all                          # all jobs in config/photos.yaml, both variants + compare sheets
 python run_demo.py --photo p5 --size 48 --dither off
+python run_demo.py --photo p5 --size 64x48             # landscape board, width x height in studs
 python run_demo.py --photo p5 --palette client    # the client's fixed 58 colours (C01–C58)
 python run_demo.py --photo p5 --colors 64         # adaptive palette with 64 colours
 python -m pytest -q tests
@@ -54,6 +55,17 @@ moves its bricks to the nearest colour still in use (CIEDE2000, same as the engi
 Defaults are tuned for faithful portraits: Detail 1, everything else neutral.
 - The client photos are not in the repo, so the "try a client photo" buttons only appear where
   `input/` holds them. Uploads always work.
+
+## Board sizes (client's Modular Frame Baseplate Dimension Sheet)
+
+1 baseplate = 16 × 16 studs = 12.8 × 12.8 cm (8 mm per stud). Frame opening = board + 2 mm per side length.
+
+- Square: 3×3 to 12×12 plates (48×48 studs, 38.4 cm, up to 192×192 studs, 153.6 cm). Default 3×3 = 48×48.
+- Landscape and portrait: 4×3, 5×3, 5×4, 6×4, 8×4, 8×6, 10×6, 12×6, 12×8 plates (and turned).
+- Custom: any number of plates wide × high (up to 16 × 16).
+
+Boards are width × height bricks: matrix.json has `width` and `height`; `size` stays a number for
+square boards and reads "WxH" otherwise. The crop always has the board's shape, so nothing is stretched.
 
 ## Similarity score
 

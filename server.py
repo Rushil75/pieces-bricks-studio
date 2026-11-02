@@ -181,8 +181,10 @@ def client_palette():
 
 class ConvertIn(BaseModel):
     job: str | None = None
-    crop: list[int] = Field(min_length=3, max_length=3)
-    size: int = Field(48, ge=8, le=256)
+    crop: list[int] = Field(min_length=3, max_length=4)  # [x, y, size] or [x, y, width, height]
+    size: int = Field(48, ge=8, le=256)  # square board, unless width and height are given
+    width: int | None = Field(None, ge=8, le=256)
+    height: int | None = Field(None, ge=8, le=256)
     dither: float = Field(0, ge=0, le=100)  # 0 = off; strength in %
     face_detail: float = Field(0.15, ge=0, le=2)
     background: str = Field("bilateral", pattern="^(bilateral|meanshift|none)$")
@@ -206,7 +208,8 @@ async def convert(file: UploadFile = File(...), options: str = Form(...)):
          "brightness": body.brightness, "contrast": body.contrast, "saturation_adj": body.saturation,
          "filter": body.filter}
     dither = body.dither / 100 if body.dither else False
-    grid, palette, pre, cells = pipeline.convert(path, body.size, dither, s, return_cells=True)
+    board = (body.width, body.height) if body.width and body.height else body.size
+    grid, palette, pre, cells = pipeline.convert(path, board, dither, s, return_cells=True)
     settings = {**s, "crop_resolved": pre["crop_box"], "faces_in_crop": pre["faces"], "dither": body.dither}
     matrix = export.build_matrix(grid, palette, settings, {"variant": "dither" if body.dither else "nodither"})
     # Target colour of every brick, so the page can re-match bricks when a colour is removed.
@@ -224,9 +227,11 @@ class ExportIn(BaseModel):
 def _clean_matrix(m):
     """Validate an edited matrix and keep only the palette colours it actually uses."""
     grid = m.get("grid")
-    n = m.get("size")
-    if not isinstance(grid, list) or len(grid) != n or any(not isinstance(r, list) or len(r) != n for r in grid):
-        raise HTTPException(400, "grid must be size x size")
+    if not isinstance(grid, list) or not grid or not isinstance(grid[0], list):
+        raise HTTPException(400, "grid must be a list of rows")
+    w, h = m.get("width", len(grid[0])), m.get("height", len(grid))
+    if len(grid) != h or any(not isinstance(r, list) or len(r) != w for r in grid):
+        raise HTTPException(400, "grid must be width x height")
     known = {e["code"]: e for e in (m.get("palette_full") or []) + load_client_palette().entries + m["palette"]["colors"]}
     used = {c for r in grid for c in r}
     missing = used - known.keys()
@@ -241,8 +246,8 @@ def _clean_matrix(m):
 @app.post("/api/export")
 def export_pack(body: ExportIn):
     m = _clean_matrix(body.matrix)
-    n = m["size"]
-    preview, flat, grid = render.cell_sizes(n)
+    w, h = export.dims(m)
+    preview, flat, grid = render.cell_sizes(max(w, h))
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("matrix.json", json.dumps(m, indent=1))
@@ -254,7 +259,7 @@ def export_pack(body: ExportIn):
             z.writestr(name, b.getvalue())
         z.writestr("counts.csv", export.counts_csv(m))
     return Response(buf.getvalue(), media_type="application/zip",
-                    headers={"Content-Disposition": f'attachment; filename="mosaic_{n}x{n}.zip"'})
+                    headers={"Content-Disposition": f'attachment; filename="mosaic_{w}x{h}.zip"'})
 
 
 if WEB.exists():

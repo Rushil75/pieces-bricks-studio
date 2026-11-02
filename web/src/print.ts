@@ -5,7 +5,8 @@ import type { Crop } from "./api";
 export type PrintLayout = "seamless" | "jig";
 
 export interface PrintOptions {
-  tiles: number; // tiles per side (the board size)
+  cols: number; // tiles across (board width in studs)
+  rows: number; // tiles down (board height in studs)
   tileMm: number; // tile pitch, 8 mm for standard 1x1 pieces
   dpi: number;
   layout: PrintLayout;
@@ -13,7 +14,7 @@ export interface PrintOptions {
   bleedMm: number; // jig only: image printed past each tile edge
 }
 
-export const PRINT_DEFAULTS: Omit<PrintOptions, "tiles"> = {
+export const PRINT_DEFAULTS: Omit<PrintOptions, "cols" | "rows"> = {
   tileMm: 8,
   dpi: 300,
   layout: "seamless",
@@ -27,10 +28,13 @@ const mmToPx = (mm: number, dpi: number) => (mm / 25.4) * dpi;
 
 /** Sheet size in px and mm, and the DPI actually used (lowered if the sheet would be too big). */
 export function sheetInfo(o: PrintOptions) {
-  const sideMm = o.layout === "seamless" ? o.tiles * o.tileMm : o.tiles * o.tileMm + (o.tiles + 1) * o.gapMm;
+  const span = (n: number) => (o.layout === "seamless" ? n * o.tileMm : n * o.tileMm + (n + 1) * o.gapMm);
+  const widthMm = span(o.cols);
+  const heightMm = span(o.rows);
   let dpi = o.dpi;
-  if (mmToPx(sideMm, dpi) > MAX_SIDE) dpi = Math.floor((MAX_SIDE / sideMm) * 25.4);
-  return { sideMm, dpi, sidePx: Math.round(mmToPx(sideMm, dpi)) };
+  const longMm = Math.max(widthMm, heightMm);
+  if (mmToPx(longMm, dpi) > MAX_SIDE) dpi = Math.floor((MAX_SIDE / longMm) * 25.4);
+  return { widthMm, heightMm, dpi, widthPx: Math.round(mmToPx(widthMm, dpi)), heightPx: Math.round(mmToPx(heightMm, dpi)) };
 }
 
 export async function renderPrintSheet(
@@ -39,31 +43,32 @@ export async function renderPrintSheet(
   crop: Crop,
   o: PrintOptions,
 ): Promise<Blob> {
-  const { dpi, sidePx } = sheetInfo(o);
+  const { dpi, widthPx, heightPx } = sheetInfo(o);
   const vs = image.naturalWidth / photoWidth;
-  const [cx, cy, cs] = [crop[0] * vs, crop[1] * vs, crop[2] * vs];
+  const [cx, cy, cw, ch] = [crop[0] * vs, crop[1] * vs, crop[2] * vs, crop[3] * vs];
   const cv = document.createElement("canvas");
-  cv.width = cv.height = sidePx;
+  cv.width = widthPx;
+  cv.height = heightPx;
   const ctx = cv.getContext("2d")!;
   ctx.imageSmoothingQuality = "high";
   ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, sidePx, sidePx);
+  ctx.fillRect(0, 0, widthPx, heightPx);
 
   if (o.layout === "seamless") {
-    ctx.drawImage(image, cx, cy, cs, cs, 0, 0, sidePx, sidePx);
+    ctx.drawImage(image, cx, cy, cw, ch, 0, 0, widthPx, heightPx);
   } else {
     const tile = mmToPx(o.tileMm, dpi);
     const gap = mmToPx(o.gapMm, dpi);
     const bleed = Math.min(mmToPx(o.bleedMm, dpi), gap / 2);
-    const src = cs / o.tiles; // source pixels per tile
+    const src = cw / o.cols; // source pixels per tile (crop has the board's shape)
     const srcBleed = (bleed / tile) * src;
-    for (let r = 0; r < o.tiles; r++) {
-      for (let c = 0; c < o.tiles; c++) {
+    for (let r = 0; r < o.rows; r++) {
+      for (let c = 0; c < o.cols; c++) {
         const x = gap + c * (tile + gap);
         const y = gap + r * (tile + gap);
         // Clamp the bleed at the photo's outer edge so the sheet never samples outside the crop.
         const l = c === 0 ? 0 : srcBleed, t = r === 0 ? 0 : srcBleed;
-        const rr = c === o.tiles - 1 ? 0 : srcBleed, b = r === o.tiles - 1 ? 0 : srcBleed;
+        const rr = c === o.cols - 1 ? 0 : srcBleed, b = r === o.rows - 1 ? 0 : srcBleed;
         const kx = tile / src;
         ctx.drawImage(
           image,

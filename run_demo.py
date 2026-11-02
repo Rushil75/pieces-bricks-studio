@@ -14,7 +14,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--photo", help="job id from config/photos.yaml (p1, p2a, p2b, p3a, p3b, p4, p5)")
     ap.add_argument("--all", action="store_true")
-    ap.add_argument("--size", type=int, help="grid size N (default: sizes listed in photos.yaml)")
+    ap.add_argument("--size", help="board in bricks: N (square) or WxH, e.g. 64x48 "
+                    "(default: sizes listed in photos.yaml)")
     ap.add_argument("--dither", choices=["on", "off", "both"], default="both")
     ap.add_argument("--palette", choices=["adaptive", "client"])
     ap.add_argument("--colors", type=int, help="adaptive palette size")
@@ -29,7 +30,9 @@ def main():
     overrides = {"palette": a.palette, "colors": a.colors}
 
     for job in jobs:
-        for size in [a.size] if a.size else cfg["jobs"][job]["sizes"]:
+        sizes = [tuple(int(v) for v in a.size.lower().split("x")) if "x" in a.size.lower() else int(a.size)] \
+            if a.size else cfg["jobs"][job]["sizes"]
+        for size in sizes:
             for d in variants:
                 t = time.time()
                 r = pipeline.run(job, size, d, overrides, a.out)

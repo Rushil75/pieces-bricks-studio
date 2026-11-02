@@ -12,7 +12,8 @@ GAP = (24, 22, 26)
 
 
 def cell_sizes(n):
-    """(preview, flat, grid) pixels per brick for an n x n board, so files stay a sensible size."""
+    """(preview, flat, grid) pixels per brick for a board whose long side is n bricks,
+    so files stay a sensible size."""
     if n <= 64:
         return 22, 10, 30
     if n <= 128:
@@ -62,10 +63,14 @@ def _brick_tile(rgb, cell, ss=4):
     return im.resize((cell, cell), Image.LANCZOS)
 
 
+def _dims(matrix):
+    return len(matrix["grid"][0]), len(matrix["grid"])
+
+
 def render_preview(matrix, cell=22):
-    n, cols = matrix["size"], _colors(matrix)
+    (w, h), cols = _dims(matrix), _colors(matrix)
     tiles = {code: _brick_tile(rgb, cell) for code, rgb in cols.items()}
-    out = Image.new("RGB", (n * cell, n * cell), GAP)
+    out = Image.new("RGB", (w * cell, h * cell), GAP)
     for y, row in enumerate(matrix["grid"]):
         for x, code in enumerate(row):
             out.paste(tiles[code], (x * cell, y * cell))
@@ -75,14 +80,15 @@ def render_preview(matrix, cell=22):
 def render_flat(matrix, cell=10):
     cols = _colors(matrix)
     arr = np.array([[cols[c] for c in row] for row in matrix["grid"]], np.uint8)
-    return Image.fromarray(arr).resize((matrix["size"] * cell,) * 2, Image.NEAREST)
+    w, h = _dims(matrix)
+    return Image.fromarray(arr).resize((w * cell, h * cell), Image.NEAREST)
 
 
 def render_grid(matrix, cell=30, block=8):
-    n, cols = matrix["size"], _colors(matrix)
+    (w, h), cols = _dims(matrix), _colors(matrix)
     margin = cell + 6
-    W = margin * 2 + n * cell
-    out = Image.new("RGB", (W, W), (255, 255, 255))
+    W, H = margin * 2 + w * cell, margin * 2 + h * cell
+    out = Image.new("RGB", (W, H), (255, 255, 255))
     d = ImageDraw.Draw(out)
     f, fe = _font(int(cell * 0.42), bold=True), _font(int(cell * 0.38))
     for y, row in enumerate(matrix["grid"]):
@@ -92,15 +98,20 @@ def render_grid(matrix, cell=30, block=8):
             d.rectangle([x0, y0, x0 + cell, y0 + cell], fill=rgb)
             lum = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
             d.text((x0 + cell / 2, y0 + cell / 2), code[1:], fill=(0, 0, 0) if lum > 140 else (255, 255, 255), font=f, anchor="mm")
-    for i in range(n + 1):
+    for i in range(w + 1):  # vertical lines and column numbers
         wdt, col = (3, (0, 0, 0)) if i % block == 0 else (1, (90, 90, 90))
         p = margin + i * cell
-        d.line([p, margin, p, margin + n * cell], fill=col, width=wdt)
-        d.line([margin, p, margin + n * cell, p], fill=col, width=wdt)
-    for i in range(n):
+        d.line([p, margin, p, margin + h * cell], fill=col, width=wdt)
+    for i in range(h + 1):  # horizontal lines and row numbers
+        wdt, col = (3, (0, 0, 0)) if i % block == 0 else (1, (90, 90, 90))
+        p = margin + i * cell
+        d.line([margin, p, margin + w * cell, p], fill=col, width=wdt)
+    for i in range(w):
         c = margin + i * cell + cell / 2
-        for pos in ((c, margin / 2), (c, W - margin / 2)):
+        for pos in ((c, margin / 2), (c, H - margin / 2)):
             d.text(pos, str(i + 1), fill=(0, 0, 0), font=fe, anchor="mm")
+    for i in range(h):
+        c = margin + i * cell + cell / 2
         for pos in ((margin / 2, c), (W - margin / 2, c)):
             d.text(pos, str(i + 1), fill=(0, 0, 0), font=fe, anchor="mm")
     return out
@@ -110,14 +121,14 @@ def render_compare(original, panels, caption):
     """original crop + labelled previews side by side, caption underneath.
     Previews stay at native size: resampling brick gaps turns them into a grey haze."""
     pad, head, foot = 24, 46, 60
-    height = panels[0][1].height
-    imgs = [("Original crop", original.resize((height, height), Image.LANCZOS))] + panels
-    W = pad + len(imgs) * (height + pad)
+    width, height = panels[0][1].size
+    imgs = [("Original crop", original.resize((width, height), Image.LANCZOS))] + panels
+    W = pad + len(imgs) * (width + pad)
     out = Image.new("RGB", (W, height + head + foot + pad), (250, 248, 244))
     d = ImageDraw.Draw(out)
     ft, fc = _font(26, bold=True), _font(24)
     for i, (title, im) in enumerate(imgs):
-        x = pad + i * (height + pad)
+        x = pad + i * (width + pad)
         d.text((x, pad / 2 + 4), title, fill=(30, 30, 30), font=ft)
         out.paste(im, (x, head))
     d.text((pad, head + height + 18), caption, fill=(60, 60, 60), font=fc)

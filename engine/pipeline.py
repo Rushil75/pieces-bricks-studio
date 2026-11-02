@@ -1,4 +1,6 @@
-"""run(job, size, dither) -> result. Deterministic: same photo + settings = same matrix."""
+"""run(job, size, dither) -> result. Deterministic: same photo + settings = same matrix.
+
+A board size is either N (an N x N square) or (width, height) in bricks."""
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -33,9 +35,22 @@ def job_settings(job, overrides=None, config=None):
     return s
 
 
+def dims(size):
+    """Board size -> (width, height) in bricks."""
+    if isinstance(size, (int, np.integer)):
+        return int(size), int(size)
+    w, h = size
+    return int(w), int(h)
+
+
+def size_label(size):
+    w, h = dims(size)
+    return str(w) if w == h else f"{w}x{h}"
+
+
 @lru_cache(maxsize=int(os.environ.get("PREPROCESS_CACHE", "4")))  # each entry ~40-100 MB
-def _preprocess_cached(path, frozen):
-    return preprocess(path, dict(frozen))
+def _preprocess_cached(path, frozen, aspect=1.0):
+    return preprocess(path, dict(frozen), aspect)
 
 
 def _freeze(s):
@@ -53,11 +68,12 @@ def default_settings(overrides=None, config=None):
 def convert(path, size, dither, s, return_cells=False):
     """Core conversion for any photo: returns (grid codes, full palette, preprocess result),
     plus the target colour of every brick when return_cells (used to re-match edited palettes)."""
+    w, h = dims(size)
     # Keep at least ~10 source pixels per brick on big boards.
-    s = {**s, "work_max": max(int(s.get("work_max", 1600)), size * 10)}
-    pre = _preprocess_cached(str(path), _freeze(s))
-    fmask = downscale_mask(pre["face_mask"], size)
-    cells = face_detail(downscale(pre["image"], size), fmask, s["grid_face_detail"], s["grid_detail_sigma"])
+    s = {**s, "work_max": max(int(s.get("work_max", 1600)), max(w, h) * 10)}
+    pre = _preprocess_cached(str(path), _freeze(s), round(w / h, 6))
+    fmask = downscale_mask(pre["face_mask"], (w, h))
+    cells = face_detail(downscale(pre["image"], (w, h)), fmask, s["grid_face_detail"], s["grid_detail_sigma"])
     cells = adjust(cells, s)
 
     client = load_client_palette()
@@ -91,7 +107,7 @@ def run(job, size, dither=False, overrides=None, out_root=None, config=None):
     matrix = export.build_matrix(grid, palette, settings, {"job": job, "variant": variant})
     matrix["similarity"] = metrics.similarity(matrix, pre["crop"], pre["face_mask"])
 
-    out = Path(out_root or ROOT / "output") / f"{job}_{size}_{variant}"
+    out = Path(out_root or ROOT / "output") / f"{job}_{size_label(size)}_{variant}"
     out.mkdir(parents=True, exist_ok=True)
     export.write_matrix(matrix, out / "matrix.json")
     Image.fromarray(pre["crop"]).save(out / "crop.png")
@@ -103,7 +119,7 @@ def write_outputs(out):
     """preview, flat, grid and counts are rendered only from the saved matrix.json."""
     out = Path(out)
     matrix = export.read_matrix(out / "matrix.json")
-    preview, flat, grid = render.cell_sizes(matrix["size"])
+    preview, flat, grid = render.cell_sizes(max(export.dims(matrix)))
     render.render_preview(matrix, preview).save(out / "preview.png")
     render.render_flat(matrix, flat).save(out / "flat.png")
     render.render_grid(matrix, grid).save(out / "grid.png")
@@ -112,14 +128,16 @@ def write_outputs(out):
 
 def write_compare(job, size, out_root=None):
     root = Path(out_root or ROOT / "output")
-    a, b = root / f"{job}_{size}_nodither", root / f"{job}_{size}_dither"
+    label = size_label(size)
+    a, b = root / f"{job}_{label}_nodither", root / f"{job}_{label}_dither"
     ma, mb = export.read_matrix(a / "matrix.json"), export.read_matrix(b / "matrix.json")
     crop = Image.open(a / "crop.png").convert("RGB")
-    cell = render.cell_sizes(size)[0]
+    w, h = dims(size)
+    cell = render.cell_sizes(max(w, h))[0]
     panels = [("No dithering", render.render_preview(ma, cell)), ("Dithering", render.render_preview(mb, cell))]
     pal = ma["palette"]["name"]
-    caption = (f"{job} | {size} x {size} = {size * size:,} bricks | palette: {pal} | "
+    caption = (f"{job} | {w} x {h} = {w * h:,} bricks | palette: {pal} | "
                f"colours used: {len(ma['palette']['colors'])} (no dither), {len(mb['palette']['colors'])} (dither)")
-    path = root / f"{job}_{size}_compare.png"
+    path = root / f"{job}_{label}_compare.png"
     render.render_compare(crop, panels, caption).save(path)
     return path
