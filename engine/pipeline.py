@@ -10,7 +10,7 @@ import numpy as np
 import yaml
 from PIL import Image
 
-from . import export, metrics, render
+from . import export, metrics, render, studio
 from .palette import build_adaptive_palette, load_client_palette, rgb_to_lab, select_subset
 from .preprocess import preprocess
 from .quantize import dither as fs_dither
@@ -69,6 +69,11 @@ def default_settings(overrides=None, config=None):
 def convert(path, size, dither, s, return_cells=False):
     """Core conversion for any photo: returns (grid codes, full palette, preprocess result),
     plus the target colour of every brick when return_cells (used to re-match edited palettes)."""
+    if s.get("engine", "classic") == "studio":
+        # dither: False/0 = the studio_dither setting, True = at least 0.5, or a 0-1 strength
+        strength = s.get("studio_dither", 0.0) if not dither else (max(0.5, s.get("studio_dither", 0.0)) if dither is True else float(dither))
+        grid, palette, pre, cells = studio.convert(path, size, s, strength)
+        return (grid, palette, pre, cells) if return_cells else (grid, palette, pre)
     w, h = dims(size)
     # Over-saturation guard: on with the Vivid filter (boosted colour would otherwise pick garish
     # oranges for pastels); off by default because it also nudges ordinary skin duller.

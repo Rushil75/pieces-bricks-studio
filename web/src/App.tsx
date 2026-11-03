@@ -2,23 +2,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "./api";
 import type { ConvertOptions, Crop, Filter, Matrix, PaletteColor, Photo } from "./api";
 import { hexToLab, nearest } from "./colour";
+import { setBrickStyle } from "./bricks";
 import CropEditor, { reshapeCrop } from "./components/CropEditor";
 import MosaicCanvas, { type Tool, type View } from "./components/MosaicCanvas";
 import { PRINT_DEFAULTS, renderPrintSheet, sheetInfo, type PrintLayout } from "./print";
+import { PLATE, studioCrop } from "./studioCrop";
+import { detectFaces } from "./faces";
+import SizeGrid, { BigView, posterPng, type SizeResult } from "./components/SizeGrid";
 
 const STUD_MM = 8;
-// Client spec: 1 baseplate = 16 x 16 studs = 12.8 cm; frames need +2 mm on each side length.
-const PLATE = 16;
+// Baseplates of 24 x 24 studs = 19.2 cm (as the reference); frames need +2 mm per side length.
 const FRAME_MM = 2;
 type Shape = "square" | "landscape" | "portrait" | "custom";
-const SQUARE: [number, number][] = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((p) => [p, p]);
-const LANDSCAPE: [number, number][] = [[4, 3], [5, 3], [5, 4], [6, 4], [8, 4], [8, 6], [10, 6], [12, 6], [12, 8]];
+const SQUARE: [number, number][] = [2, 3, 4, 5, 6, 7].map((p) => [p, p]);
+const PORTRAIT: [number, number][] = [[2, 2], [2, 3], [2, 4], [3, 3], [3, 4], [3, 5], [4, 4], [4, 5], [4, 6]];
 const BOARDS: Record<Exclude<Shape, "custom">, [number, number][]> = {
   square: SQUARE,
-  landscape: LANDSCAPE,
-  portrait: LANDSCAPE.map(([w, h]) => [h, w]),
+  landscape: PORTRAIT.map(([w, h]) => [h, w]),
+  portrait: PORTRAIT,
 };
-const MAX_PLATES = 16; // 256 studs, the engine's limit
+const MAX_PLATES = 10; // 240 studs, within the engine's 256 limit
 const cm = (studs: number) => ((studs * STUD_MM) / 10).toFixed(1);
 const frameCm = (studs: number) => ((studs * STUD_MM + FRAME_MM) / 10).toFixed(1);
 const dimsOf = (m: Matrix): [number, number] => [m.grid[0].length, m.grid.length];
@@ -46,6 +49,21 @@ const DEFAULTS: ConvertOptions = {
   filter: "none",
   face_detail: 0.15,
   background: "bilateral",
+  engine: "studio",
+  studio_palette: "40",
+  studio_colors: 40,
+  studio_contrast: 10,
+  studio_saturation: -2,
+  studio_smoothing: 0.6,
+  studio_local_contrast: 0.6,
+  studio_dark_lines: 1,
+  studio_detail: 0.1,
+  studio_dither: 0,
+  studio_bg_simplify: 0.7,
+  studio_auto_frame: true,
+  studio_brighten_face: true,
+  studio_auto_levels: true,
+  studio_auto_saturation: false,
 };
 
 function download(blob: Blob, name: string) {
@@ -66,14 +84,22 @@ export default function App() {
   const [job, setJob] = useState<string | undefined>(undefined);
   const [crop, setCrop] = useState<Crop>([0, 0, 1, 1]);
   const [opts, setOpts] = useState<ConvertOptions>(DEFAULTS);
+  setBrickStyle(opts.engine === "studio" ? "studio" : "classic");
   const [shape, setShape] = useState<Shape>("square");
   const userCrop = useRef<Crop | null>(null); // last crop set by the user (or the auto crop)
+  const autoCrop = useRef(true); // Studio: keep framing the faces per board until the user moves the crop
+  // Studio: faces from the reference's own detector (in the browser); null = use the server's
+  const [studioFaces, setStudioFaces] = useState<number[][] | null>(null);
+  const [facesNote, setFacesNote] = useState("");
   const [matrix, setMatrix] = useState<Matrix | null>(null);
   const [grid, setGrid] = useState<string[][] | null>(null);
   const [past, setPast] = useState<string[][][]>([]);
   const [future, setFuture] = useState<string[][][]>([]);
   const [generatedWith, setGeneratedWith] = useState<string>("");
-  const [view, setView] = useState<View>("bricks");
+  const [view, setView] = useState<View | "sizes">("sizes");
+  const [sizeResults, setSizeResults] = useState<SizeResult[]>([]);
+  const sizesReq = useRef(0);
+  const [bigSize, setBigSize] = useState<SizeResult | null>(null);
   const [tool, setTool] = useState<Tool>("paint");
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState<string>("");
@@ -132,7 +158,19 @@ export default function App() {
       setPhotoBlob(blob);
       setJob(src.job);
       userCrop.current = ph.auto_crop;
-      setCrop(reshapeCrop(ph.auto_crop, ph.width, ph.height, opts.width / opts.height));
+      autoCrop.current = true;
+      // Board shape from the photo, as the reference: clearly tall = portrait, clearly wide = landscape
+      setShape(ph.height > ph.width * 1.15 ? "portrait" : ph.width > ph.height * 1.15 ? "landscape" : "square");
+      let faces = ph.faces;
+      if (opts.engine === "studio") {
+        setBusy("Finding faces…");
+        faces = await findStudioFaces(img, ph);
+      }
+      setCrop(
+        opts.engine === "studio"
+          ? studioCrop({ ...ph, faces }, opts.width, opts.height, opts.studio_auto_frame)
+          : reshapeCrop(ph.auto_crop, ph.width, ph.height, opts.width / opts.height),
+      );
       setMatrix(null);
       setGrid(null);
       setPast([]);
@@ -142,6 +180,75 @@ export default function App() {
     } finally {
       setBusy("");
     }
+  };
+
+  /** Faces for the Studio engine: the reference's detector in the browser, else the server's. */
+  const findStudioFaces = async (img: HTMLImageElement, ph: Photo): Promise<number[][]> => {
+    try {
+      const f = await detectFaces(img);
+      setStudioFaces(f);
+      setFacesNote(f.length ? `${f.length} face${f.length > 1 ? "s" : ""} found` : "No face found: frame the photo by hand.");
+      return f;
+    } catch {
+      setStudioFaces(null);
+      setFacesNote("Browser face detector unavailable: using the server's.");
+      return ph.faces;
+    }
+  };
+  const framePhoto = photo && opts.engine === "studio" && studioFaces ? { ...photo, faces: studioFaces } : photo;
+
+  /** Crop for any board: the Studio framing per size, or the user's crop reshaped. */
+  const cropForBoard = (w: number, h: number): Crop => {
+    if (!photo) return crop;
+    if (opts.engine === "studio" && autoCrop.current && framePhoto) return studioCrop(framePhoto, w, h, opts.studio_auto_frame);
+    return reshapeCrop(userCrop.current ?? crop, photo.width, photo.height, w / h);
+  };
+
+  /** Mosaics for every size of the current shape, like the reference demo (latest request wins). */
+  const generateAllSizes = async () => {
+    if (!photo || !photoBlob || shape === "custom") return setSizeResults([]);
+    const id = ++sizesReq.current;
+    const list = BOARDS[shape];
+    const results: SizeResult[] = list.map((p) => ({ plates: p, matrix: null }));
+    setSizeResults([...results]);
+    for (let i = 0; i < list.length; i++) {
+      const [pw, ph] = list[i];
+      const o = { ...opts, width: pw * PLATE, height: ph * PLATE };
+      const c = cropForBoard(o.width, o.height);
+      try {
+        const m =
+          o.engine === "studio" && image
+            ? await api.convertStudio(image, photo.width, c, framePhoto?.faces ?? photo.faces, o)
+            : await api.convert(photoBlob, c, o, job);
+        if (id !== sizesReq.current) return;
+        results[i] = { plates: list[i], matrix: m };
+        setSizeResults([...results]);
+      } catch (e) {
+        if (id === sizesReq.current) fail(e);
+        return;
+      }
+    }
+  };
+
+  // Switching Square / Landscape / Portrait refreshes the size cards.
+  useEffect(() => {
+    if (matrix) generateAllSizes();
+  }, [shape]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Open one size from the grid for editing. */
+  const openSize = (r: SizeResult) => {
+    if (!r.matrix) return;
+    const [pw, ph] = r.plates;
+    const o = { ...opts, width: pw * PLATE, height: ph * PLATE };
+    const c = cropForBoard(o.width, o.height);
+    setOpts(o);
+    setCrop(c);
+    setMatrix(r.matrix);
+    setGrid(r.matrix.grid);
+    setPast([]);
+    setFuture([]);
+    setGeneratedWith(JSON.stringify({ id: photo?.id, crop: c, opts: o }));
+    setView("bricks");
   };
 
   const signature = JSON.stringify({ id: photo?.id, crop, opts });
@@ -158,7 +265,10 @@ export default function App() {
     if (auto) setUpdating(true);
     else setBusy(`Converting to ${opts.width}×${opts.height} bricks…`);
     try {
-      const m = await api.convert(photoBlob, crop, opts, job);
+      const m =
+        opts.engine === "studio" && image
+          ? await api.convertStudio(image, photo.width, crop, framePhoto?.faces ?? photo.faces, opts)
+          : await api.convert(photoBlob, crop, opts, job);
       if (id !== reqId.current) return;
       setMatrix(m);
       setGrid(m.grid);
@@ -166,6 +276,7 @@ export default function App() {
       setFuture([]);
       setGeneratedWith(signature);
       setSelected(null);
+      if (!auto || view === "sizes") generateAllSizes();
     } catch (e) {
       if (id === reqId.current) fail(e);
     } finally {
@@ -301,10 +412,60 @@ export default function App() {
     const width = platesW * PLATE;
     const height = platesH * PLATE;
     setOpts((o) => ({ ...o, width, height }));
+    if (!photo) return;
+    if (opts.engine === "studio" && autoCrop.current && framePhoto) {
+      setCrop(studioCrop(framePhoto, width, height, opts.studio_auto_frame));
+      return;
+    }
     // Reshape from the crop the user last chose, not the current one: a tall board may have to
     // shrink the crop to fit the photo, and that must not carry over to the next shape.
-    if (photo) setCrop((c) => reshapeCrop(userCrop.current ?? c, photo.width, photo.height, width / height));
+    setCrop((c) => reshapeCrop(userCrop.current ?? c, photo.width, photo.height, width / height));
   };
+
+  /** Studio "Auto (faces)": the reference framing for the current board. */
+  const studioAuto = (o = opts, faces = framePhoto?.faces) => {
+    if (!photo) return;
+    autoCrop.current = true;
+    setCrop(studioCrop({ ...photo, faces: faces ?? photo.faces }, o.width, o.height, o.studio_auto_frame));
+  };
+  const setEngine = async (engine: ConvertOptions["engine"]) => {
+    setOpts((o) => ({ ...o, engine }));
+    if (engine !== "studio" || !photo) return;
+    const faces = studioFaces ?? (image ? await findStudioFaces(image, photo) : photo.faces);
+    if (autoCrop.current) studioAuto({ ...opts, engine }, faces);
+  };
+
+  type StudioKey = "studio_colors" | "studio_contrast" | "studio_saturation" | "studio_smoothing" | "studio_local_contrast"
+    | "studio_dark_lines" | "studio_detail" | "studio_dither" | "studio_bg_simplify";
+  const studioSlider = (label: string, k: StudioKey, min: number, max: number, step: number) => (
+    <label className="slider adj" key={k}>
+      <span>{label}</span>
+      <input type="range" min={min} max={max} step={step} value={opts[k]} onChange={(e) => set(k, +e.target.value)} />
+      <output>
+        {step < 1 ? opts[k].toFixed(2).replace(/0$/, "") : opts[k]}
+        {opts[k] !== DEFAULTS[k] && (
+          <button className="reset" title="Reset" onClick={(e) => (e.preventDefault(), set(k, DEFAULTS[k]))}>
+            ↺
+          </button>
+        )}
+      </output>
+    </label>
+  );
+  type StudioFlag = "studio_auto_frame" | "studio_brighten_face" | "studio_auto_levels" | "studio_auto_saturation";
+  const studioCheck = (label: string, k: StudioFlag) => (
+    <label className="check" key={k}>
+      <input
+        type="checkbox"
+        checked={opts[k]}
+        onChange={(e) => {
+          const o = { ...opts, [k]: e.target.checked };
+          setOpts(o);
+          if (k === "studio_auto_frame" && autoCrop.current) studioAuto(o);
+        }}
+      />{" "}
+      {label}
+    </label>
+  );
 
   type NumKey = "detail" | "face_detail" | "dither" | "brightness" | "contrast" | "saturation" | "highlights";
   const adjustSlider = (label: string, k: NumKey, min: number, max: number, step: number, def: number) => (
@@ -352,11 +513,6 @@ export default function App() {
             <span>
               <b>{counts.length}</b> colours
             </span>
-            {matrix.similarity && (
-              <span className={matrix.similarity.similarity >= 95 ? "sim-ok" : "sim-low"}>
-                <b>{matrix.similarity.similarity.toFixed(1)}%</b> similar
-              </span>
-            )}
           </div>
         )}
       </header>
@@ -445,16 +601,19 @@ export default function App() {
               <h2>
                 <span className="step">2</span> Crop &amp; zoom
               </h2>
+              {opts.engine === "studio" && facesNote && <p className="hint">{facesNote}</p>}
               <CropEditor
-                photo={photo}
+                photo={framePhoto ?? photo}
                 image={image}
                 crop={crop}
                 cols={opts.width}
                 rows={opts.height}
                 onChange={(c) => {
                   userCrop.current = c;
+                  autoCrop.current = false;
                   setCrop(c);
                 }}
+                onAuto={opts.engine === "studio" ? () => studioAuto() : undefined}
               />
             </section>
           )}
@@ -517,10 +676,65 @@ export default function App() {
                   </div>
                 )}
                 <p className="hint">
-                  {opts.width / PLATE}×{opts.height / PLATE} plates of 16×16 studs = {cm(opts.width)} × {cm(opts.height)} cm ·{" "}
+                  {opts.width / PLATE}×{opts.height / PLATE} plates of 24×24 studs = {cm(opts.width)} × {cm(opts.height)} cm ·{" "}
                   {(opts.width * opts.height).toLocaleString()} bricks · frame opening {frameCm(opts.width)} × {frameCm(opts.height)} cm
                 </p>
               </div>
+              <div className="field">
+                <span className="label">Engine</span>
+                <div className="seg">
+                  <button className={opts.engine === "studio" ? "on" : ""} onClick={() => setEngine("studio")}>
+                    Studio
+                  </button>
+                  <button className={opts.engine === "classic" ? "on" : ""} onClick={() => setEngine("classic")}>
+                    Classic
+                  </button>
+                </div>
+              </div>
+
+              {opts.engine === "studio" ? (
+                <>
+                  <div className="field">
+                    <span className="label">Palette</span>
+                    <div className="seg">
+                      <button className={opts.studio_palette === "40" ? "on" : ""} onClick={() => set("studio_palette", "40")}>
+                        40 colours
+                      </button>
+                      <button className={opts.studio_palette === "current" ? "on" : ""} onClick={() => set("studio_palette", "current")}>
+                        {client.length || 59} colours
+                      </button>
+                    </div>
+                  </div>
+                  <div className="adjust">
+                    {studioSlider("Colors", "studio_colors", 6, opts.studio_palette === "40" ? 40 : client.length || 59, 1)}
+                    {studioSlider("Contrast", "studio_contrast", -30, 60, 1)}
+                    {opts.studio_auto_saturation ? (
+                      <label className="slider adj">
+                        <span>Saturation</span>
+                        <span className="muted">
+                          Auto{typeof matrix?.settings.studio_saturation_used === "number" ? `: ${matrix.settings.studio_saturation_used}` : ""}
+                        </span>
+                        <span />
+                      </label>
+                    ) : (
+                      studioSlider("Saturation", "studio_saturation", -30, 60, 1)
+                    )}
+                    {studioSlider("Smoothing", "studio_smoothing", 0, 1, 0.05)}
+                    {studioSlider("Local contrast", "studio_local_contrast", 0, 1.5, 0.05)}
+                    {studioSlider("Dark lines", "studio_dark_lines", 0, 2, 0.05)}
+                    {studioSlider("Detail", "studio_detail", 0, 0.6, 0.02)}
+                    {studioSlider("Dithering", "studio_dither", 0, 1, 0.05)}
+                    {studioSlider("Background simplify", "studio_bg_simplify", 0, 1, 0.05)}
+                  </div>
+                  <div className="checks">
+                    {studioCheck("Auto-frame faces (tighter on small sizes)", "studio_auto_frame")}
+                    {studioCheck("Brighten face", "studio_brighten_face")}
+                    {studioCheck("Auto levels", "studio_auto_levels")}
+                    {studioCheck("Auto saturation (from the photo's colour)", "studio_auto_saturation")}
+                  </div>
+                </>
+              ) : (
+              <>
               <div className="field">
                 <span className="label">Colours</span>
                 <label className="slider adj">
@@ -595,6 +809,8 @@ export default function App() {
                   ))}
                 </div>
               </div>
+              </>
+              )}
 
               <button className="btn primary block" onClick={() => generate()} disabled={!!busy}>
                 {matrix ? (stale ? "Generate again" : "Regenerate") : "Generate mosaic"}
@@ -615,6 +831,7 @@ export default function App() {
                 <div className="seg">
                   {(
                     [
+                      ["sizes", "All sizes"],
                       ["bricks", "Bricks"],
                       ["flat", "Flat"],
                       ["numbers", "Numbered grid"],
@@ -632,7 +849,7 @@ export default function App() {
                     <span className="spinner sm" /> Updating…
                   </span>
                 )}
-                <div className="tools" hidden={view === "printed"}>
+                <div className="tools" hidden={view === "printed" || view === "sizes"}>
                   <div className="seg">
                     <button className={tool === "paint" ? "on" : ""} onClick={() => setTool("paint")} title="Paint bricks with the selected colour">
                       Paint
@@ -659,6 +876,16 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              {view === "sizes" ? (
+                <SizeGrid
+                  results={sizeResults}
+                  current={[mw, mh]}
+                  plate={PLATE}
+                  cm={cm}
+                  hexOf={hexOf}
+                  onOpen={setBigSize}
+                />
+              ) : (
               <MosaicCanvas
                 grid={grid}
                 hexOf={hexOf}
@@ -675,7 +902,8 @@ export default function App() {
                   setTool("paint");
                 }}
               />
-              {tool === "paint" && !selected && view !== "compare" && view !== "printed" && (
+              )}
+              {tool === "paint" && !selected && view !== "compare" && view !== "printed" && view !== "sizes" && (
                 <p className="hint center">Choose a colour on the right, then click or drag on the mosaic to paint.</p>
               )}
             </>
@@ -710,40 +938,6 @@ export default function App() {
         {/* ---------- right: colours + counts ---------- */}
         {grid && matrix && (
           <aside className="panel right">
-            {matrix.similarity && (
-              <section className="similarity">
-                <h2>Similarity to photo</h2>
-                <div className={`sim-big ${matrix.similarity.similarity >= 95 ? "ok" : "low"}`}>
-                  {matrix.similarity.similarity.toFixed(1)}%
-                </div>
-                <div className="sim-bar">
-                  <span style={{ width: `${Math.min(100, matrix.similarity.similarity)}%` }} />
-                  <i style={{ left: "95%" }} title="95% target" />
-                </div>
-                <dl>
-                  <dt>Bricks with a close colour match (ΔE ≤ 5)</dt>
-                  <dd>{matrix.similarity.pct_close.toFixed(1)}%</dd>
-                  <dt>Bricks with no visible difference (ΔE ≤ 2.3)</dt>
-                  <dd>{matrix.similarity.pct_unnoticeable.toFixed(1)}%</dd>
-                  <dt>Structure match (SSIM)</dt>
-                  <dd>{matrix.similarity.structure_ssim.toFixed(1)}%</dd>
-                  <dt>Average colour error (ΔE)</dt>
-                  <dd>{matrix.similarity.mean_delta_e.toFixed(2)}</dd>
-                  {matrix.similarity.face_mean_delta_e !== undefined && (
-                    <>
-                      <dt>Average colour error on faces</dt>
-                      <dd>{matrix.similarity.face_mean_delta_e.toFixed(2)}</dd>
-                    </>
-                  )}
-                </dl>
-                <p className="hint">
-                  Measured against the photo averaged under each brick, the most detail a {mw}×{mh} board can hold.
-                  {edits > 0 && " Score is for the generated mosaic, before your edits."}
-                  {(opts.filter !== "none" || opts.brightness || opts.contrast || opts.saturation || opts.detail > DEFAULTS.detail) &&
-                    " Filters and adjustments change the picture on purpose, so they lower this score."}
-                </p>
-              </section>
-            )}
             <section>
               <h2>Paint colour</h2>
               <div className="seg small">
@@ -899,6 +1093,24 @@ export default function App() {
           </aside>
         )}
       </main>
+      {bigSize?.matrix && (() => {
+        const [pw, ph] = bigSize.plates;
+        const title = `${cm(pw * PLATE)} × ${cm(ph * PLATE)} cm · ${pw}×${ph} baseplates, ${pw * PLATE}×${ph * PLATE} studs`;
+        return (
+          <BigView
+            result={bigSize}
+            title={title}
+            hexOf={hexOf}
+            nameOf={nameOf}
+            onClose={() => setBigSize(null)}
+            onEdit={() => {
+              openSize(bigSize);
+              setBigSize(null);
+            }}
+            onDownload={async () => download(await posterPng(bigSize.matrix!, hexOf, nameOf, title), `brick-mosaic-${pw}x${ph}.png`)}
+          />
+        );
+      })()}
     </div>
   );
 }

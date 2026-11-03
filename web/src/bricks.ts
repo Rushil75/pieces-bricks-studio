@@ -50,10 +50,54 @@ export function printedTileOverlay(cell: number): HTMLCanvasElement {
 
 const cache = new Map<string, HTMLCanvasElement>();
 
+export type BrickStyle = "studio" | "classic";
+let style: BrickStyle = "classic";
+/** Studio engine draws bricks like the reference demo: a darker square with a round stud. */
+export function setBrickStyle(s: BrickStyle) {
+  style = s;
+}
+
+function studioTile(hex: string, cell: number): HTMLCanvasElement {
+  const ss = 4;
+  const s = cell * ss;
+  const k = s / 12; // the reference draws 12 px studs
+  const big = document.createElement("canvas");
+  big.width = big.height = s;
+  const x = big.getContext("2d")!;
+  x.fillStyle = hex;
+  x.fillRect(0, 0, s, s);
+  x.fillStyle = "rgba(0,0,0,.22)";
+  x.fillRect(0, 0, s, s);
+  x.beginPath();
+  x.arc(s / 2, s / 2, s * 0.38, 0, 7);
+  x.fillStyle = hex;
+  x.fill();
+  x.lineWidth = 0.8 * k;
+  x.strokeStyle = "rgba(0,0,0,.3)";
+  x.stroke();
+  x.beginPath();
+  x.arc(s / 2, s / 2, s * 0.27, 3.4, 4.9);
+  x.strokeStyle = "rgba(255,255,255,.45)";
+  x.lineWidth = 1 * k;
+  x.stroke();
+  const tile = document.createElement("canvas");
+  tile.width = tile.height = cell;
+  const t = tile.getContext("2d")!;
+  t.imageSmoothingQuality = "high";
+  t.drawImage(big, 0, 0, cell, cell);
+  return tile;
+}
+
 export function brickTile(hex: string, cell: number): HTMLCanvasElement {
-  const key = `${hex}@${cell}`;
+  const key = `${style}:${hex}@${cell}`;
   const hit = cache.get(key);
   if (hit) return hit;
+  if (style === "studio") {
+    const tile = studioTile(hex, cell);
+    if (cache.size > 4000) cache.clear();
+    cache.set(key, tile);
+    return tile;
+  }
 
   const ss = 4; // supersample, then draw scaled down for smooth studs
   const s = cell * ss;

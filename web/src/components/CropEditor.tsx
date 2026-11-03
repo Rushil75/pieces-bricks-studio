@@ -8,6 +8,7 @@ interface Props {
   cols: number; // board width in bricks
   rows: number; // board height in bricks
   onChange: (c: Crop) => void;
+  onAuto?: () => void; // "Auto (faces)": the caller's own framing rule (Studio engine)
 }
 
 const MIN_SIDE = 48;
@@ -38,7 +39,7 @@ export function wholeCrop(w: number, h: number, aspect: number): Crop {
   return clampCrop([(w - cw) / 2, (h - ch) / 2, cw, ch], w, h, aspect);
 }
 
-export default function CropEditor({ photo, image, crop, cols, rows, onChange }: Props) {
+export default function CropEditor({ photo, image, crop, cols, rows, onChange, onAuto }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ px: number; py: number; crop: Crop } | null>(null);
   const [showGrid, setShowGrid] = useState(true);
@@ -154,7 +155,7 @@ export default function CropEditor({ photo, image, crop, cols, rows, onChange }:
           <input type="range" min={0} max={100} value={zoomPct} onChange={(e) => setZoomPct(+e.target.value)} />
         </label>
         <div className="btn-row">
-          <button className="btn ghost sm" onClick={() => onChange(reshapeCrop(photo.auto_crop, photo.width, photo.height, aspect))}>
+          <button className="btn ghost sm" onClick={() => (onAuto ? onAuto() : onChange(reshapeCrop(photo.auto_crop, photo.width, photo.height, aspect)))}>
             Auto (faces)
           </button>
           <button className="btn ghost sm" onClick={() => onChange(wholeCrop(photo.width, photo.height, aspect))}>

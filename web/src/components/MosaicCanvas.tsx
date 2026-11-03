@@ -20,9 +20,10 @@ interface Props {
 }
 
 const BLOCK = 8;
-const PLATE = 16; // studs per baseplate side (client spec: 16 x 16 studs = 12.8 cm)
+const PLATE = 24; // studs per baseplate side (24 x 24 studs = 19.2 cm)
 const ZOOMS = [1, 2, 4, 8];
 const MAX_CANVAS = 8192; // device pixels per side; keeps big boards within browser limits
+const DISPLAY = 350; // on-screen size of the mosaic's long side at 1x, in CSS px
 
 export default function MosaicCanvas(p: Props) {
   const wrap = useRef<HTMLDivElement>(null);
@@ -60,14 +61,16 @@ export default function MosaicCanvas(p: Props) {
   const margin = labels ? 1 : 0;
   const across = cols + 2 * margin;
   const down = rows + 2 * margin;
-  const cell = Math.max(2, Math.min(Math.floor((width * zoom * dpr) / across), Math.floor(MAX_CANVAS / Math.max(across, down))));
+  // Shown in a fixed DISPLAY-px box (long side) for every board size, times the zoom. Drawn at
+  // least 4 px per brick so studs stay visible, then scaled down by the browser.
+  const longest = Math.max(across, down);
+  const display = DISPLAY * zoom;
+  const cell = Math.max(4, Math.min(Math.ceil((display * dpr) / longest), Math.floor(MAX_CANVAS / longest)));
   const off = margin * cell;
   const W = cell * across;
   const H = cell * down;
-  // Always show the canvas at its true pixel size: stretching it to the panel width blurred every
-  // brick edge and stud. Whole-pixel bricks leave at most a few pixels of margin, centred.
-  const cssW = W / dpr;
-  const cssH = (cssW * H) / W;
+  const cssW = (display * across) / longest;
+  const cssH = (display * down) / longest;
 
   useEffect(() => {
     const cv = ref.current;

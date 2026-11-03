@@ -5,7 +5,7 @@ export interface Photo {
   width: number;
   height: number;
   view_url: string;
-  faces: [number, number, number, number][];
+  faces: number[][];
   auto_crop: Crop;
   title?: string;
 }
@@ -56,6 +56,22 @@ export interface ConvertOptions {
   blend: "off" | "background" | "all"; // viewing-distance colour blending
   face_detail: number;
   background: "bilateral" | "meanshift" | "none";
+  engine: "studio" | "classic";
+  // Studio engine (port of the reference demo)
+  studio_palette: "40" | "current";
+  studio_colors: number;
+  studio_contrast: number;
+  studio_saturation: number;
+  studio_smoothing: number;
+  studio_local_contrast: number;
+  studio_dark_lines: number;
+  studio_detail: number;
+  studio_dither: number;
+  studio_bg_simplify: number;
+  studio_auto_frame: boolean;
+  studio_brighten_face: boolean;
+  studio_auto_levels: boolean;
+  studio_auto_saturation: boolean;
 }
 
 // Where the Python API lives. Empty = same origin (local server). On Netlify set VITE_API_BASE
@@ -130,6 +146,23 @@ export async function clientPalette(): Promise<{ version: string; colors: Palett
 }
 
 // The photo goes with every conversion: serverless hosts don't keep uploads between requests.
+/** Studio engine: the browser crops and resamples the photo to 8 px per stud with its canvas
+ * (exactly as the reference does), and the server runs the rest of the pipeline on that image. */
+export async function convertStudio(image: HTMLImageElement, photoWidth: number, crop: Crop, faces: number[][], o: ConvertOptions): Promise<Matrix> {
+  const cv = document.createElement("canvas");
+  cv.width = o.width * 8;
+  cv.height = o.height * 8;
+  const ctx = cv.getContext("2d")!;
+  ctx.imageSmoothingQuality = "high";
+  const k = image.naturalWidth / photoWidth; // the page image may be a scaled copy of the photo
+  ctx.drawImage(image, crop[0] * k, crop[1] * k, crop[2] * k, crop[3] * k, 0, 0, cv.width, cv.height);
+  const work = await new Promise<Blob>((ok, no) => cv.toBlob((b) => (b ? ok(b) : no(new Error("could not prepare the image"))), "image/png"));
+  const fd = new FormData();
+  fd.append("file", work, "work.png");
+  fd.append("options", JSON.stringify({ ...o, crop, faces, work: true }));
+  return json(await call("/api/convert", { method: "POST", body: fd }));
+}
+
 export async function convert(photo: Blob, crop: Crop, o: ConvertOptions, job?: string): Promise<Matrix> {
   const fd = new FormData();
   fd.append("file", photo, "photo.jpg");
@@ -150,7 +183,7 @@ const MAX_BYTES = 4_000_000; // hosted requests are capped at 4.5 MB
 export async function preparePhoto(file: Blob): Promise<Blob> {
   const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
   let side = Math.min(MAX_SIDE, Math.max(bmp.width, bmp.height));
-  if (file.size <= MAX_BYTES && side === Math.max(bmp.width, bmp.height) && file.type === "image/jpeg") {
+  if (file.size <= MAX_BYTES && side === Math.max(bmp.width, bmp.height) && ["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
     bmp.close();
     return file;
   }

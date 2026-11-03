@@ -21,10 +21,11 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+import numpy as np
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from engine import export, metrics, pipeline, render
+from engine import export, metrics, pipeline, render, studio
 from engine.palette import load_client_palette
 from engine.preprocess import detect_faces, load_image, plan_crop
 
@@ -181,7 +182,26 @@ def client_palette():
 
 class ConvertIn(BaseModel):
     job: str | None = None
-    crop: list[int] = Field(min_length=3, max_length=4)  # [x, y, size] or [x, y, width, height]
+    crop: list[float] = Field(min_length=3, max_length=4)  # [x, y, size] or [x, y, width, height]
+    engine: str = Field("studio", pattern="^(studio|classic)$")
+    # Studio engine (port of the reference demo). work = the uploaded file is the board image the
+    # browser already cropped and resampled to 8 px per stud; faces are in photo pixels.
+    work: bool = False
+    faces: list[list[float]] | None = None
+    studio_palette: str = Field("40", pattern="^(40|current)$")
+    studio_colors: int = Field(40, ge=6, le=59)
+    studio_contrast: float = Field(10, ge=-30, le=60)
+    studio_saturation: float = Field(-2, ge=-30, le=60)
+    studio_smoothing: float = Field(0.6, ge=0, le=1)
+    studio_local_contrast: float = Field(0.6, ge=0, le=1.5)
+    studio_dark_lines: float = Field(1.0, ge=0, le=2)
+    studio_detail: float = Field(0.1, ge=0, le=0.6)
+    studio_dither: float = Field(0.0, ge=0, le=1)
+    studio_bg_simplify: float = Field(0.7, ge=0, le=1)
+    studio_auto_frame: bool = True
+    studio_brighten_face: bool = True
+    studio_auto_levels: bool = True
+    studio_auto_saturation: bool = False
     size: int = Field(48, ge=8, le=256)  # square board, unless width and height are given
     width: int | None = Field(None, ge=8, le=256)
     height: int | None = Field(None, ge=8, le=256)
@@ -203,19 +223,44 @@ async def convert(file: UploadFile = File(...), options: str = Form(...)):
     """Stateless: the photo comes with every request, so any server instance can answer
     (serverless hosts do not share disk between requests)."""
     body = ConvertIn.model_validate_json(options)
+    board = (body.width, body.height) if body.width and body.height else body.size
+    if body.engine == "studio":
+        return await _convert_studio(file, body, board)
     path = _save(*(await _read_upload(file)))
     job = body.job if body.job in pipeline.load_config()["jobs"] else None
     base = pipeline.job_settings(job) if job else pipeline.default_settings()
-    s = {**base, "file": path.name, "crop": body.crop, "palette": "client",
+    s = {**base, "engine": "classic", "file": path.name, "crop": body.crop, "palette": "client",
          "grid_face_detail": body.face_detail, "bg_filter": body.background, "detail": body.detail,
          "brightness": body.brightness, "contrast": body.contrast, "saturation_adj": body.saturation,
          "highlights": body.highlights,
          "filter": body.filter, "client_colors": body.colors, "blend": body.blend}
     dither = body.dither / 100 if body.dither else False
-    board = (body.width, body.height) if body.width and body.height else body.size
     grid, palette, pre, cells = pipeline.convert(path, board, dither, s, return_cells=True)
-    settings = {**s, "crop_resolved": pre["crop_box"], "faces_in_crop": pre["faces"], "dither": body.dither}
-    matrix = export.build_matrix(grid, palette, settings, {"variant": "dither" if body.dither else "nodither"})
+    return _matrix_response(grid, palette, pre, cells, s, body.dither)
+
+
+async def _convert_studio(file, body, board):
+    data, suffix = await _read_upload(file)
+    s = {**pipeline.default_settings(), "engine": "studio",
+         **{k: v for k, v in body.model_dump().items() if k.startswith("studio_")},
+         "crop": body.crop}
+    s = dict(s)  # the engine records the saturation it chose here
+    if body.work:
+        try:
+            work = np.asarray(Image.open(io.BytesIO(data)).convert("RGB"))
+            grid, palette, pre, cells = studio.convert(None, board, s, body.studio_dither, work=work, faces=body.faces)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+    else:
+        path = _save(data, suffix)
+        s["file"] = path.name
+        grid, palette, pre, cells = studio.convert(path, board, s, body.studio_dither, faces=body.faces)
+    return _matrix_response(grid, palette, pre, cells, s, body.studio_dither)
+
+
+def _matrix_response(grid, palette, pre, cells, s, dither):
+    settings = {**s, "crop_resolved": pre["crop_box"], "faces_in_crop": pre["faces"], "dither": dither}
+    matrix = export.build_matrix(grid, palette, settings, {"variant": "dither" if dither else "nodither"})
     # Target colour of every brick, so the page can re-match bricks when a colour is removed.
     matrix["source"] = ["".join(f"{r:02X}{g:02X}{b:02X}" for r, g, b in row) for row in cells.tolist()]
     matrix["similarity"] = metrics.similarity(matrix, pre["crop"], pre["face_mask"])

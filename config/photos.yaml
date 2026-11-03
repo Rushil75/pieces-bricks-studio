@@ -2,6 +2,21 @@
 # Jobs are named <photo><version>; output goes to output/<job>_<size>_<variant>/.
 
 defaults:
+  engine: studio           # studio = port of the reference demo (24-stud plates, OKLab) | classic
+  studio_palette: "40"     # "40" = original PhotoBricks 40 (as the reference) | current = palette.json (59)
+  studio_colors: 40        # at most this many colours (fewer if a colour covers < 0.8 % of studs)
+  studio_contrast: 10      # -30 .. 60
+  studio_saturation: -2    # -30 .. 60 (reference demo as used by the client: -2)
+  studio_smoothing: 0.6    # edge-preserving smoothing, 0 .. 1
+  studio_local_contrast: 0.6  # 0 .. 1.5
+  studio_dark_lines: 1.0   # darken eyes, brows, beard edges, 0 .. 2
+  studio_detail: 0.1       # sharpening, 0 .. 0.6
+  studio_dither: 0.0       # Floyd-Steinberg strength, 0 .. 1
+  studio_bg_simplify: 0.7  # blur and mute outside the head-and-shoulders oval, 0 .. 1
+  studio_auto_frame: true  # crop on the faces, tighter on small boards
+  studio_brighten_face: true
+  studio_auto_levels: true
+  studio_auto_saturation: false  # pick saturation from how colourful the photo already is
   palette: client          # client = fixed 58 (C01-C58); adaptive = best colours for this photo
   colors: 60               # client's limit: at most 60 colours per mosaic (engine allows up to 256)
   face_weight: 6.0         # face cells count this much more when choosing adaptive colours

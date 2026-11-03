@@ -53,7 +53,7 @@ def test_counts_sum_to_n_squared_and_match_matrix(result):
 def test_same_settings_give_identical_matrix(result, tmp_path):
     m = result["matrix"]
     pipeline._preprocess_cached.cache_clear()
-    again = pipeline.run(m["job"], SIZE, m["settings"]["dither"], {"palette": m["palette"]["name"]}, tmp_path)
+    again = pipeline.run(m["job"], SIZE, m["settings"]["dither"], {"palette": m["settings"]["palette"]}, tmp_path)
     assert (result["dir"] / "matrix.json").read_bytes() == (again["dir"] / "matrix.json").read_bytes()
 
 
