@@ -8,7 +8,7 @@ export interface SizeResult {
 }
 
 const THUMB = 350; // long side of each card's mosaic, CSS px
-const PLATE_LINES = 24; // baseplate seams in the large view and the PNG
+const PLATE_LINES = 16; // baseplate seams in the large view and the PNG
 
 /** Draw a mosaic's bricks onto ctx at (x0, y0), `cell` px per brick, optional baseplate seams. */
 function drawBricks(ctx: CanvasRenderingContext2D, matrix: Matrix, hexOf: (c: string) => string, cell: number, x0 = 0, y0 = 0, plates = false) {

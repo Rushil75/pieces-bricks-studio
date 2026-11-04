@@ -2,7 +2,7 @@
 // to stay readable there). Same rule as engine/studio.py crop_for.
 import type { Crop, Photo } from "./api";
 
-export const PLATE = 24; // studs per baseplate side
+export const PLATE = 16; // studs per baseplate side (client sheet: 16 x 16 studs = 12.8 cm)
 
 /** Faces at least 30 % of the largest face's area. */
 export function keepFaces(faces: number[][]): number[][] {

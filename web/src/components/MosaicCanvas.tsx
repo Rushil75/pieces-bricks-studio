@@ -20,7 +20,7 @@ interface Props {
 }
 
 const BLOCK = 8;
-const PLATE = 24; // studs per baseplate side (24 x 24 studs = 19.2 cm)
+const PLATE = 16; // studs per baseplate side (16 x 16 studs = 12.8 cm, client sheet)
 const ZOOMS = [1, 2, 4, 8];
 const MAX_CANVAS = 8192; // device pixels per side; keeps big boards within browser limits
 const DISPLAY = 350; // on-screen size of the mosaic's long side at 1x, in CSS px

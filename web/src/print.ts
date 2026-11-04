@@ -24,17 +24,20 @@ export const PRINT_DEFAULTS: Omit<PrintOptions, "cols" | "rows"> = {
 
 const MAX_SIDE = 16000; // browsers refuse larger canvases
 
-const mmToPx = (mm: number, dpi: number) => (mm / 25.4) * dpi;
+// Whole pixels per millimetre, so every size prints exactly: an 8 mm tile is a whole number of
+// pixels, a 12.8 cm baseplate too, and the PNG stores the exact resolution (px per metre).
+const mmToPx = (mm: number, pxPerMm: number) => mm * pxPerMm;
 
-/** Sheet size in px and mm, and the DPI actually used (lowered if the sheet would be too big). */
+/** Sheet size in px and mm, and the resolution actually used (lowered if the sheet would be too big). */
 export function sheetInfo(o: PrintOptions) {
   const span = (n: number) => (o.layout === "seamless" ? n * o.tileMm : n * o.tileMm + (n + 1) * o.gapMm);
   const widthMm = span(o.cols);
   const heightMm = span(o.rows);
-  let dpi = o.dpi;
   const longMm = Math.max(widthMm, heightMm);
-  if (mmToPx(longMm, dpi) > MAX_SIDE) dpi = Math.floor((MAX_SIDE / longMm) * 25.4);
-  return { widthMm, heightMm, dpi, widthPx: Math.round(mmToPx(widthMm, dpi)), heightPx: Math.round(mmToPx(heightMm, dpi)) };
+  let pxPerMm = Math.max(1, Math.round(o.dpi / 25.4)); // 300 dpi -> 12 px/mm (304.8 dpi)
+  if (longMm * pxPerMm > MAX_SIDE) pxPerMm = Math.max(1, Math.floor(MAX_SIDE / longMm));
+  const dpi = Math.round(pxPerMm * 25.4 * 10) / 10;
+  return { widthMm, heightMm, dpi, pxPerMm, widthPx: Math.round(widthMm * pxPerMm), heightPx: Math.round(heightMm * pxPerMm) };
 }
 
 export async function renderPrintSheet(
@@ -43,7 +46,7 @@ export async function renderPrintSheet(
   crop: Crop,
   o: PrintOptions,
 ): Promise<Blob> {
-  const { dpi, widthPx, heightPx } = sheetInfo(o);
+  const { pxPerMm, widthPx, heightPx } = sheetInfo(o);
   const vs = image.naturalWidth / photoWidth;
   const [cx, cy, cw, ch] = [crop[0] * vs, crop[1] * vs, crop[2] * vs, crop[3] * vs];
   const cv = document.createElement("canvas");
@@ -57,9 +60,9 @@ export async function renderPrintSheet(
   if (o.layout === "seamless") {
     ctx.drawImage(image, cx, cy, cw, ch, 0, 0, widthPx, heightPx);
   } else {
-    const tile = mmToPx(o.tileMm, dpi);
-    const gap = mmToPx(o.gapMm, dpi);
-    const bleed = Math.min(mmToPx(o.bleedMm, dpi), gap / 2);
+    const tile = mmToPx(o.tileMm, pxPerMm);
+    const gap = mmToPx(o.gapMm, pxPerMm);
+    const bleed = Math.min(mmToPx(o.bleedMm, pxPerMm), gap / 2);
     const src = cw / o.cols; // source pixels per tile (crop has the board's shape)
     const srcBleed = (bleed / tile) * src;
     for (let r = 0; r < o.rows; r++) {
@@ -79,7 +82,7 @@ export async function renderPrintSheet(
     }
   }
   const png = await new Promise<Blob>((ok, fail) => cv.toBlob((b) => (b ? ok(b) : fail(new Error("print sheet too large"))), "image/png"));
-  return withDpi(png, dpi);
+  return withResolution(png, pxPerMm);
 }
 
 // ---- PNG physical size (pHYs chunk), so print software uses the right size ----
@@ -100,9 +103,9 @@ function crc32(bytes: Uint8Array): number {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-async function withDpi(png: Blob, dpi: number): Promise<Blob> {
+async function withResolution(png: Blob, pxPerMm: number): Promise<Blob> {
   const buf = new Uint8Array(await png.arrayBuffer());
-  const ppm = Math.round(dpi / 0.0254);
+  const ppm = pxPerMm * 1000; // exact
   const chunk = new Uint8Array(21);
   const v = new DataView(chunk.buffer);
   v.setUint32(0, 9);

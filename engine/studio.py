@@ -80,7 +80,7 @@ def keep_faces(faces):
     return [f for f in faces if f[2] * f[3] >= big * 0.3]
 
 
-def crop_for(iw, ih, gw, gh, faces, auto_frame=True, zoom=1.0, dx=0.0, dy=0.0, plate=24):
+def crop_for(iw, ih, gw, gh, faces, auto_frame=True, zoom=1.0, dx=0.0, dy=0.0, plate=16):
     """Crop box (x, y, w, h) for a gw x gh-plate board. Smaller boards get a tighter crop on the
     face, since the face needs more studs to stay readable."""
     a = gw / gh
@@ -387,7 +387,7 @@ def photo_and_faces(path, score=0.8):
     return _photo(str(p), p.stat().st_mtime, score)
 
 
-def board_crop(rgb, faces, cols, rows, s, plate=24):
+def board_crop(rgb, faces, cols, rows, s, plate=16):
     """Explicit crop from settings ([x, y, w, h] or [x, y, side]) or the reference auto-frame."""
     ih, iw = rgb.shape[:2]
     crop = s.get("crop")

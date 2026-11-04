@@ -11,17 +11,18 @@ import { detectFaces } from "./faces";
 import SizeGrid, { BigView, posterPng, type SizeResult } from "./components/SizeGrid";
 
 const STUD_MM = 8;
-// Baseplates of 24 x 24 studs = 19.2 cm (as the reference); frames need +2 mm per side length.
+// Baseplates of 16 x 16 studs = 12.8 cm (client sheet); frames need +2 mm per side length.
 const FRAME_MM = 2;
 type Shape = "square" | "landscape" | "portrait" | "custom";
-const SQUARE: [number, number][] = [2, 3, 4, 5, 6, 7].map((p) => [p, p]);
-const PORTRAIT: [number, number][] = [[2, 2], [2, 3], [2, 4], [3, 3], [3, 4], [3, 5], [4, 4], [4, 5], [4, 6]];
+// Client baseplate sheet: 16 x 16-stud plates (12.8 cm); 3 x 3 plates = 48 x 48 studs = 38.4 cm
+const SQUARE: [number, number][] = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((p) => [p, p]);
+const PORTRAIT: [number, number][] = [[3, 4], [3, 5], [4, 5], [4, 6], [4, 8], [6, 8], [6, 10], [6, 12], [8, 12]];
 const BOARDS: Record<Exclude<Shape, "custom">, [number, number][]> = {
   square: SQUARE,
   landscape: PORTRAIT.map(([w, h]) => [h, w]),
   portrait: PORTRAIT,
 };
-const MAX_PLATES = 10; // 240 studs, within the engine's 256 limit
+const MAX_PLATES = 16; // 256 studs, the engine's limit
 const cm = (studs: number) => ((studs * STUD_MM) / 10).toFixed(1);
 const frameCm = (studs: number) => ((studs * STUD_MM + FRAME_MM) / 10).toFixed(1);
 const dimsOf = (m: Matrix): [number, number] => [m.grid[0].length, m.grid.length];
@@ -676,7 +677,7 @@ export default function App() {
                   </div>
                 )}
                 <p className="hint">
-                  {opts.width / PLATE}×{opts.height / PLATE} plates of 24×24 studs = {cm(opts.width)} × {cm(opts.height)} cm ·{" "}
+                  {opts.width / PLATE}×{opts.height / PLATE} plates of 16×16 studs = {cm(opts.width)} × {cm(opts.height)} cm ·{" "}
                   {(opts.width * opts.height).toLocaleString()} bricks · frame opening {frameCm(opts.width)} × {frameCm(opts.height)} cm
                 </p>
               </div>
@@ -1077,8 +1078,8 @@ export default function App() {
                 return (
                   <p className="hint">
                     Sheet {(info.widthMm / 10).toFixed(1)} × {(info.heightMm / 10).toFixed(1)} cm · {info.widthPx.toLocaleString()} ×{" "}
-                    {info.heightPx.toLocaleString()} px at {info.dpi} dpi
-                    {info.dpi < print.dpi && " (lowered: the browser can't make a bigger image)"}.
+                    {info.heightPx.toLocaleString()} px at {info.dpi} dpi ({info.pxPerMm} px per mm, prints at exactly this size)
+                    {info.dpi < print.dpi - 13 && " (lowered: the browser can't make a bigger image)"}.
                     {print.layout === "jig"
                       ? " Tiles are spaced as they sit in a printer jig; the photo runs a little past each edge (bleed)."
                       : " One image the size of the finished board, for printing on a plate or a full sheet of tiles."}
